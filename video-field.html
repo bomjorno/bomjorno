@@ -89,6 +89,10 @@ button.dl{border-style:dashed;border-color:var(--accent);color:var(--accent);whi
   #bar{width:70px}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+.auto-hint{display:none;border:1px dashed rgba(255,179,71,.5);border-radius:8px;padding:6px 9px;color:#ffb347}
+body.auto .auto-hint{display:block}
+body.auto .pane .slider,body.auto .pane .field{opacity:.55}
 </style>
 <div id="app">
 <header id="top">
@@ -105,14 +109,18 @@ button.dl{border-style:dashed;border-color:var(--accent);color:var(--accent);whi
 <aside id="insp" aria-label="Параметры модуля">
 <section class="pane" id="p-source" hidden><h2><span>Видео</span></h2><p class="sub">Длина клипа берётся из оригинала, до 5 минут. Для длинных роликов выбери фрагмент.</p><div class="slider"><span>Начало</span><input id="tStart" type="range" min="0" max="0" step="0.1" value="0"><output></output></div><div class="slider"><span>Длительность</span><input id="dur" type="range" min="1" max="20" step="0.1" value="6"><output></output></div><div class="slider"><span>Цикл эффектов</span><input id="cyc" type="range" min="1" max="30" step="0.5" value="6"><output></output></div><label class="chk"><input id="snd" type="checkbox" checked> Звук в предпросмотре</label><p class="sub">«Цикл эффектов» это период, за который пульсация, волны и облёт делают полный оборот. У коротких клипов он равен длине клипа.</p></section>
 <section class="pane" id="p-audio" hidden><h2><span>Звук и ритм</span></h2><p class="sub">Дорожка видео разбирается на басы, середину и верх, удары, темп, доли и такты. Эффекты подстраиваются под это сами.</p><div class="note" id="audInfo">Загрузи видео, и я разберу его звук.</div><label class="chk"><input id="audOn" type="checkbox"> Реакция на звук</label><div class="slider"><span>Общая сила</span><input id="aGain" type="range" min="0" max="2" step="0.05" value="1"><output></output></div><div class="slider"><span>Басы → глубина, пульс</span><input id="aBass" type="range" min="0" max="2" step="0.05" value="1"><output></output></div><div class="slider"><span>Середина → волны, связи</span><input id="aMid" type="range" min="0" max="2" step="0.05" value="1"><output></output></div><div class="slider"><span>Верх → турбулентность</span><input id="aHigh" type="range" min="0" max="2" step="0.05" value="1"><output></output></div><div class="slider"><span>Удары → камера, метки</span><input id="aBeat" type="range" min="0" max="2" step="0.05" value="1"><output></output></div><div class="slider"><span>Удар → разлёт</span><input id="aScat" type="range" min="0" max="1" step="0.02" value="0.12"><output></output></div><div class="slider"><span>Вспышка на удар</span><input id="aFlash" type="range" min="0" max="1.5" step="0.05" value="0.4"><output></output></div><p class="sub">Метки трек-точек загораются по очереди на каждую долю. В рамке видны темп, такт и три полосы звука. Голос определяется по ритму слогов, слова не распознаются.</p></section>
-<section class="pane" id="p-auto" hidden><h2><span>Авто-режиссёр</span></h2><p class="sub">Смотрит на яркость, контуры, цвет и движение кадра, слушает ритм и громкость. Режет клип на короткие планы по тактам. В каждом плане исходный кадр остаётся читаемым, одна главная идея и своя палитра, а соседние планы не похожи друг на друга.</p><div class="chips" id="traits"><span class="chip">ждёт видео</span></div><div class="row"><button id="reroll">↻ Новая раскладка</button><span class="sub">вариант <b id="seedO">#1</b></span><button id="autoFreeze" title="Оставить текущие слои и править вручную">Свой режим</button></div><p class="sub">Планы совпадают с громкостью: тихие получают спокойные оформления, громкие получают «Дроп» и «Печать». Оформление любого плана можно заменить.</p><div id="secList"></div></section>
-<section class="pane" id="p-cloud" hidden><h2><span>Облако и глубина</span></h2><p class="sub">Точки берут цвет и яркость из каждого кадра. Яркость даёт глубину, к ней можно добавить перспективу «снизу ближе».</p><label class="chk"><input id="cloudOn" type="checkbox" checked> Облако точек включено</label><label class="chk"><input id="bgRemove" type="checkbox" checked> Убрать фон (цвет по углам кадра)</label><div class="slider"><span>Порог фона</span><input id="bgThr" type="range" min="0.02" max="0.5" step="0.01" value="0.16"><output></output></div><div class="slider"><span>Плотность</span><input id="density" type="range" min="160" max="720" step="20" value="360"><output></output></div><div class="slider"><span>Глубина</span><input id="depth" type="range" min="0" max="2.5" step="0.05" value="1"><output></output></div><div class="slider"><span>Перспектива</span><input id="depthY" type="range" min="0" max="1" step="0.05" value="0"><output></output></div><div class="slider"><span>Размер точки</span><input id="size" type="range" min="0.4" max="3" step="0.05" value="1.1"><output></output></div><div class="field"><span>Цвет</span><select id="colorMode"><option value="0">Цвет видео</option><option value="1" selected>Моно</option><option value="2">Циан</option><option value="3">Красный</option><option value="4">Карта глубины</option><option value="5">Палитра видео</option></select></div><div class="slider"><span>Видео подложкой</span><input id="underlay" type="range" min="0" max="1" step="0.05" value="0"><output></output></div></section>
+<section class="pane" id="p-auto" hidden><h2><span>Авто-режиссёр</span></h2><p class="sub">Смотрит на яркость, контуры, цвет и движение кадра, слушает ритм и громкость. Режет клип на короткие планы по тактам. Каждый план это одна идея: сам кадр искажается, перекрашивается или перепечатывается по своему содержанию. У каждой склейки свой переход, у каждого плана своё движение и палитра, а соседние планы не похожи друг на друга.</p><div class="chips" id="traits"><span class="chip">ждёт видео</span></div><div class="row"><button id="reroll">↻ Новая раскладка</button><span class="sub">вариант <b id="seedO">#1</b></span><button id="autoFreeze" title="Оставить текущие слои и править вручную">Свой режим</button></div><p class="sub">Планы совпадают с громкостью: тихие получают спокойные оформления, громкие получают «Дроп» и «Печать». Оформление любого плана можно заменить.</p><div id="secList"></div></section>
+<section class="pane" id="p-cloud" hidden><h2><span>Облако и глубина</span></h2><p class="sub">Облако из точек поверх видео. Точки берут цвет и яркость из каждого кадра. Яркость даёт глубину, к ней можно добавить перспективу «снизу ближе».</p><label class="chk"><input id="cloudOn" type="checkbox"> Облако точек включено</label><label class="chk"><input id="bgRemove" type="checkbox" checked> Убрать фон (цвет по углам кадра)</label><div class="slider"><span>Порог фона</span><input id="bgThr" type="range" min="0.02" max="0.5" step="0.01" value="0.16"><output></output></div><div class="slider"><span>Плотность</span><input id="density" type="range" min="160" max="720" step="20" value="360"><output></output></div><div class="slider"><span>Глубина</span><input id="depth" type="range" min="0" max="2.5" step="0.05" value="1"><output></output></div><div class="slider"><span>Перспектива</span><input id="depthY" type="range" min="0" max="1" step="0.05" value="0"><output></output></div><div class="slider"><span>Размер точки</span><input id="size" type="range" min="0.4" max="3" step="0.05" value="1.1"><output></output></div><div class="field"><span>Цвет</span><select id="colorMode"><option value="0">Цвет видео</option><option value="1" selected>Моно</option><option value="2">Циан</option><option value="3">Красный</option><option value="4">Карта глубины</option><option value="5">Палитра видео</option></select></div><div class="slider"><span>Видео (яркость)</span><input id="underlay" type="range" min="0" max="1" step="0.05" value="1"><output></output></div></section>
 <section class="pane" id="p-scene" hidden><h2><span>Сцена</span></h2><p class="sub">Сценарий разлёта и сборки, парение, ветер и облёт камеры.</p><div class="field"><span>Сценарий</span><select id="scenario"><option value="float" selected>Парение (без разлёта)</option><option value="static">Статично</option><option value="inout">Собраться и рассыпаться</option><option value="outin">Рассыпаться и собраться</option><option value="out">Рассыпаться</option><option value="in">Сборка из пыли</option></select></div><div class="slider"><span>Разлёт</span><input id="scatter" type="range" min="0.1" max="1" step="0.01" value="0.8"><output></output></div><div class="slider"><span>Парение</span><input id="float" type="range" min="0" max="1" step="0.05" value="0.3"><output></output></div><div class="slider"><span>Ветер</span><input id="wind" type="range" min="0" max="2" step="0.05" value="1"><output></output></div><div class="slider"><span>Облёт камеры</span><input id="orbit" type="range" min="0" max="1" step="0.05" value="0.35"><output></output></div><div class="slider"><span>Скорость облёта</span><input id="orbitN" type="range" min="1" max="4" step="1" value="1"><output></output></div></section>
 <section class="pane" id="p-fxPulse" hidden><h2><span>Пульсация</span><button class="sw" data-fx="fxPulse" aria-pressed="false">выкл</button></h2><p class="sub">Волна расходится от центра и качает облако вперёд-назад.</p><div class="slider"><span>Сила</span><input id="fxPulse" type="range" min="0" max="1" step="0.05" value="0.5"><output></output></div><div class="slider"><span>Скорость</span><input id="fxPulseN" type="range" min="1" max="12" step="1" value="3"><output></output></div></section>
 <section class="pane" id="p-fxWave" hidden><h2><span>Волны</span><button class="sw" data-fx="fxWave" aria-pressed="false">выкл</button></h2><p class="sub">Облако идёт волнами по глубине.</p><div class="slider"><span>Сила</span><input id="fxWave" type="range" min="0" max="1" step="0.05" value="0.5"><output></output></div><div class="field"><span>Форма</span><select id="fxWaveT"><option value="0">Круги от центра</option><option value="1">По горизонтали</option><option value="2">По вертикали</option><option value="3">Сетка</option></select></div><div class="slider"><span>Частота</span><input id="fxWaveL" type="range" min="0.5" max="6" step="0.25" value="1.5"><output></output></div><div class="slider"><span>Скорость</span><input id="fxWaveN" type="range" min="1" max="6" step="1" value="1"><output></output></div></section>
 <section class="pane" id="p-fxMag" hidden><h2><span>Магнит</span><button class="sw" data-fx="fxMag" aria-pressed="false">выкл</button></h2><p class="sub">Невидимый магнит отталкивает или притягивает точки по траектории.</p><div class="slider"><span>Сила</span><input id="fxMag" type="range" min="0" max="1" step="0.05" value="0.6"><output></output></div><div class="field"><span>Полярность</span><select id="magPol"><option value="1">Отталкивает</option><option value="-1">Притягивает</option></select></div><div class="slider"><span>Радиус</span><input id="magR" type="range" min="5" max="60" step="1" value="22"><output></output></div><div class="slider"><span>Скорость</span><input id="magN" type="range" min="1" max="10" step="1" value="3"><output></output></div><div class="field"><span>Траектория</span><select id="magPath"><option value="eight">Восьмёрка</option><option value="circle">Круг</option><option value="sweep">Слева направо</option><option value="center">В центре</option></select></div><label class="chk"><input id="magShow" type="checkbox"> Показать магнит (попадёт в видео)</label></section>
 <section class="pane" id="p-fxTurb" hidden><h2><span>Турбулентность</span><button class="sw" data-fx="fxTurb" aria-pressed="false">выкл</button></h2><p class="sub">Точки дрожат и закручиваются потоками.</p><div class="slider"><span>Сила</span><input id="fxTurb" type="range" min="0" max="1" step="0.05" value="0.4"><output></output></div><div class="slider"><span>Скорость</span><input id="fxTurbN" type="range" min="1" max="6" step="1" value="1"><output></output></div></section>
 <section class="pane" id="p-fxScan" hidden><h2><span>Скан-линия</span><button class="sw" data-fx="fxScan" aria-pressed="false">выкл</button></h2><p class="sub">Светящаяся полоса проходит сверху вниз и приподнимает точки.</p><div class="slider"><span>Сила</span><input id="fxScan" type="range" min="0" max="1" step="0.05" value="0.7"><output></output></div><div class="slider"><span>Ширина</span><input id="fxScanW" type="range" min="0.3" max="4" step="0.1" value="1"><output></output></div><div class="slider"><span>Скорость</span><input id="fxScanN" type="range" min="1" max="4" step="1" value="1"><output></output></div></section>
+<section class="pane" id="p-vgeo" hidden><h2><span>Геометрия видео</span></h2><p class="sub">Сам кадр двигается, гнётся и отражается. Структура картинки остаётся.</p><p class="sub auto-hint">В авто-режиме значения задаёт режиссёр. Нажми «Свой режим», чтобы править руками: текущие значения подхватятся.</p><div class="slider"><span>Приближение</span><input id="vZoom" type="range" min="0.8" max="1.8" step="0.01" value="1"><output></output></div><div class="slider"><span>Наклон</span><input id="vRot" type="range" min="-0.6" max="0.6" step="0.01" value="0"><output></output></div><div class="slider"><span>Линза</span><input id="vBulge" type="range" min="-0.4" max="0.8" step="0.01" value="0"><output></output></div><div class="slider"><span>Волна кадра</span><input id="vWarp" type="range" min="0" max="0.03" step="0.001" value="0"><output></output></div><div class="slider"><span>Частота волны</span><input id="vWarpF" type="range" min="2" max="50" step="1" value="8"><output></output></div><div class="field"><span>Зеркало</span><select id="vMirror"><option value="0" selected>Нет</option><option value="1">Лево-право</option><option value="2">Четыре четверти</option><option value="3">Калейдоскоп</option></select></div><div class="slider"><span>Мозаика</span><input id="vPix" type="range" min="0" max="0.12" step="0.002" value="0"><output></output></div><div class="slider"><span>Параллакс по яркости</span><input id="vPar" type="range" min="0" max="0.2" step="0.005" value="0"><output></output></div></section>
+<section class="pane" id="p-vcont" hidden><h2><span>Искажение по содержанию</span></h2><p class="sub">Эффекты читают само видео: яркость, контуры, глубину, и меняют кадр по ним.</p><p class="sub auto-hint">В авто-режиме значения задаёт режиссёр. Нажми «Свой режим», чтобы править руками: текущие значения подхватятся.</p><div class="slider"><span>Самопреломление</span><input id="vSelf" type="range" min="0" max="0.12" step="0.002" value="0"><output></output></div><div class="slider"><span>Срезы (глитч)</span><input id="vSlice" type="range" min="0" max="0.3" step="0.005" value="0"><output></output></div><div class="slider"><span>Цветовой сдвиг RGB</span><input id="vCa" type="range" min="0" max="0.03" step="0.0005" value="0"><output></output></div><div class="slider"><span>Подсветка контуров</span><input id="vEdge" type="range" min="0" max="2" step="0.05" value="0"><output></output></div><div class="slider"><span>Свечение светов</span><input id="vGlow" type="range" min="0" max="1.5" step="0.05" value="0"><output></output></div><div class="slider"><span>Эхо (шлейф кадров)</span><input id="vFb" type="range" min="0" max="0.95" step="0.01" value="0"><output></output></div><p class="sub">Самопреломление гнёт картинку по её собственным градиентам яркости, как стекло. Параллакс двигает светлые и тёмные места на разную глубину.</p></section>
+<section class="pane" id="p-vcol" hidden><h2><span>Цвет и печать</span></h2><p class="sub">Грейд, двухцветная карта, постеризация, полутон и дизеринг на самом кадре.</p><p class="sub auto-hint">В авто-режиме значения задаёт режиссёр. Нажми «Свой режим», чтобы править руками: текущие значения подхватятся.</p><div class="slider"><span>Экспозиция</span><input id="vExp" type="range" min="0.3" max="1.6" step="0.01" value="1"><output></output></div><div class="slider"><span>Контраст</span><input id="vCon" type="range" min="0.6" max="1.8" step="0.01" value="1"><output></output></div><div class="slider"><span>Насыщенность</span><input id="vSat" type="range" min="0" max="2" step="0.01" value="1"><output></output></div><div class="slider"><span>Двухцветная карта</span><input id="vDuo" type="range" min="0" max="1" step="0.01" value="0"><output></output></div><div class="field"><span>Тени</span><input id="vC0" type="color" value="#0a0f1f"></div><div class="field"><span>Света</span><input id="vC1" type="color" value="#fff2dc"></div><div class="field"><span>Акцент (контуры)</span><input id="vC2" type="color" value="#3fe3f2"></div><div class="slider"><span>Постеризация (уровней)</span><input id="vPost" type="range" min="0" max="10" step="1" value="0"><output></output></div><div class="slider"><span>Полутон, px</span><input id="vHalf" type="range" min="0" max="24" step="1" value="0"><output></output></div><div class="slider"><span>Дизеринг, px</span><input id="vDith" type="range" min="0" max="8" step="1" value="0"><output></output></div></section>
+<section class="pane" id="p-vfilm" hidden><h2><span>Плёнка</span></h2><p class="sub">Зерно, строчки, виньетка и чёрные полосы.</p><p class="sub auto-hint">В авто-режиме значения задаёт режиссёр. Нажми «Свой режим», чтобы править руками: текущие значения подхватятся.</p><div class="slider"><span>Зерно</span><input id="vGrain" type="range" min="0" max="1" step="0.01" value="0"><output></output></div><div class="slider"><span>Строчки</span><input id="vScan" type="range" min="0" max="1" step="0.01" value="0"><output></output></div><div class="slider"><span>Виньетка</span><input id="vVig" type="range" min="0" max="1" step="0.01" value="0"><output></output></div><div class="slider"><span>Чёрные полосы</span><input id="vBars" type="range" min="0" max="0.2" step="0.005" value="0"><output></output></div></section>
 <section class="pane" id="p-gfx" hidden><h2><span>Цвет и наложение графики</span></h2><p class="sub">Общие настройки для узлов, связей, завесы, линий и глифов.</p><div class="field"><span>Цвет графики</span><select id="geoColor"><option value="auto" selected>Палитра видео</option><option value="source">Цвет видео</option><option value="cyan">Циан</option><option value="solar">Солнечный</option><option value="mono">Моно</option><option value="violet">Фиолетовый</option></select></div><div class="field"><span>Наложение</span><select id="geoBlend"><option value="source-over">Обычное</option><option value="screen">Screen</option><option value="multiply">Multiply</option><option value="overlay">Overlay</option><option value="soft-light">Soft light</option><option value="hard-light">Hard light</option><option value="color-dodge">Color dodge</option><option value="color-burn">Color burn</option><option value="lighten">Lighten</option><option value="darken">Darken</option><option value="difference">Difference</option><option value="exclusion">Exclusion</option><option value="luminosity">Luminosity</option></select></div></section>
 <section class="pane" id="p-nodes" hidden><h2><span>Узлы и фигуры</span><button class="sw" data-ly="nodes" aria-pressed="false">выкл</button></h2><p class="sub">Метки на сильнейших контурах кадра. Размер зависит от силы контура: есть мелкие, средние и главные узлы.</p><div class="slider"><span>Плотность</span><input id="nDens" type="range" min="30" max="600" step="10" value="140"><output></output></div><div class="slider"><span>Порог контура</span><input id="nThr" type="range" min="0" max="0.9" step="0.02" value="0.18"><output></output></div><div class="field"><span>Форма</span><select id="nShape"><option value="bracket">Уголки</option><option value="circle">Круг</option><option value="square">Квадрат</option><option value="diamond">Ромб</option><option value="cross">Плюс</option><option value="mixed">Смесь</option></select></div><div class="slider"><span>Мин. размер</span><input id="nMin" type="range" min="2" max="40" step="1" value="6"><output></output></div><div class="slider"><span>Макс. размер</span><input id="nMax" type="range" min="6" max="120" step="1" value="34"><output></output></div><div class="slider"><span>Толщина</span><input id="nStroke" type="range" min="0.5" max="6" step="0.25" value="1.5"><output></output></div><label class="chk"><input id="nLabels" type="checkbox"> Подписи с координатами</label></section>
 <section class="pane" id="p-links" hidden><h2><span>Связи</span><button class="sw" data-ly="links" aria-pressed="false">выкл</button></h2><p class="sub">Линии между узлами.</p><div class="field"><span>Способ</span><select id="lMode"><option value="delaunay">Delaunay (треугольная сеть)</option><option value="proximity">Соседи</option><option value="chain">Цепочка по контуру</option><option value="radial">Радиально из главного узла</option><option value="hybrid">Комбинация</option></select></div><div class="slider"><span>Макс. дистанция</span><input id="lDist" type="range" min="2" max="60" step="1" value="16"><output></output></div><div class="slider"><span>Уверенность</span><input id="lConf" type="range" min="0" max="0.9" step="0.02" value="0.15"><output></output></div><div class="slider"><span>Яркость</span><input id="lOp" type="range" min="0.05" max="1" step="0.05" value="0.55"><output></output></div><div class="slider"><span>Толщина</span><input id="lW" type="range" min="0.3" max="4" step="0.1" value="1"><output></output></div></section>
@@ -2038,14 +2046,14 @@ const U = {
   uTime: {value: 0}, uScatter: {value: 0}, uDepth: {value: 1}, uSize: {value: 1.1}, uWidth: {value: W / 2}, uHalfH: {value: 150},
   uPR: {value: 1}, uMode: {value: 1}, uWind: {value: 1}, uFloat: {value: 0.3}, uFloatN: {value: 1}, uLoop: {value: 1},
   uPulse: {value: 0}, uPulseN: {value: 3}, uWave: {value: 0}, uWaveT: {value: 0}, uWaveL: {value: 1.5}, uWaveN: {value: 1},
-  uTurb: {value: 0}, uTurbN: {value: 1}, uDepthY: {value: 0}, uP0: {value: new THREE.Vector3(0.2, 0.9, 1)}, uP1: {value: new THREE.Vector3(1, 0.3, 0.6)}, uMag: {value: 0}, uMagPol: {value: 1}, uMagR: {value: 60}, uMagPos: {value: new THREE.Vector3()},
+  uTurb: {value: 0}, uTurbN: {value: 1}, uDepthY: {value: 0}, uCloudA: {value: 1}, uP0: {value: new THREE.Vector3(0.2, 0.9, 1)}, uP1: {value: new THREE.Vector3(1, 0.3, 0.6)}, uMag: {value: 0}, uMagPol: {value: 1}, uMagR: {value: 60}, uMagPos: {value: new THREE.Vector3()},
   uScan: {value: 0}, uScanW: {value: 1}, uScanN: {value: 1},
 };
 
 const vs = `
 attribute vec4 seed;
 uniform sampler2D uTex; uniform vec2 uCell; uniform vec3 uBg; uniform float uThr, uBgOn, uInvert;
-uniform float uTime,uScatter,uDepth,uSize,uWidth,uHalfH,uPR,uWind,uFloat,uFloatN,uLoop,uPulse,uPulseN,uWave,uWaveL,uWaveN,uTurb,uTurbN,uMag,uMagPol,uMagR,uScan,uScanW,uScanN;
+uniform float uCloudA; uniform float uTime,uScatter,uDepth,uSize,uWidth,uHalfH,uPR,uWind,uFloat,uFloatN,uLoop,uPulse,uPulseN,uWave,uWaveL,uWaveN,uTurb,uTurbN,uMag,uMagPol,uMagR,uScan,uScanW,uScanN;
 uniform int uMode,uWaveT; uniform vec3 uMagPos, uP0, uP1; uniform float uDepthY;
 varying vec3 vColor; varying float vAlpha;
 void main(){
@@ -2093,11 +2101,89 @@ void main(){
   vAlpha = (1.0 - f*0.5)*(0.55 + 0.45*lum);
   vColor = mix(vColor, vec3(0.55,1.0,1.0), clamp(sb,0.0,1.0)*0.8);
   vAlpha *= 1.0 + sb*1.5;
+  vAlpha *= uCloudA;
 }`;
 const fs = `
 varying vec3 vColor; varying float vAlpha;
 void main(){ float d = length(gl_PointCoord-0.5); if (d>0.5) discard; float a = smoothstep(0.5,0.0,d)*vAlpha; gl_FragColor = vec4(vColor*a, a); }`;
 const material = new THREE.ShaderMaterial({uniforms: U, vertexShader: vs, fragmentShader: fs, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending});
+
+// ---------------------------------------------------------------- GPU video pipeline: the clip itself is warped, re-coloured and re-printed in a shader
+const VU = {uVid: {value: null}, uPrev: {value: null}, uFit: {value: new THREE.Vector2(1, 1)}, uOutAsp: {value: 1.78}, uRes: {value: new THREE.Vector2(1280, 720)}, uTime: {value: 0}, uPxS: {value: 1}, uVidA: {value: 1},
+  uA: {value: new THREE.Vector4(1, 0, 0, 0)}, uB: {value: new THREE.Vector4()}, uC: {value: new THREE.Vector4()}, uD: {value: new THREE.Vector4()}, uE: {value: new THREE.Vector4()}, uF: {value: new THREE.Vector4()},
+  uG: {value: new THREE.Vector4(0, 1, 0, 0)}, uH: {value: new THREE.Vector4(1, 1, 1, 0)}, uCam: {value: new THREE.Vector2()}, uC0: {value: new THREE.Vector3(0.02, 0.03, 0.08)}, uC1: {value: new THREE.Vector3(1, 0.95, 0.85)}, uC2: {value: new THREE.Vector3(0.25, 0.9, 0.95)}};
+const VFS = `
+varying vec2 vUv;
+uniform sampler2D uVid, uPrev; uniform vec2 uFit, uRes, uCam; uniform float uOutAsp, uTime, uPxS, uVidA;
+uniform vec4 uA, uB, uC, uD, uE, uF, uG, uH; uniform vec3 uC0, uC1, uC2;
+float hash(float n){ return fract(sin(n*127.1)*43758.5453); }
+float hash2(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7)))*43758.5453); }
+vec3 tex(vec2 uv){ return texture2D(uVid, clamp(uv, vec2(0.001), vec2(0.999))).rgb; }
+float lum(vec3 c){ return dot(c, vec3(0.299,0.587,0.114)); }
+mat2 rot2(float a){ float c = cos(a), s = sin(a); return mat2(c, -s, s, c); }
+vec2 toVid(vec2 p){ vec2 q = vec2(p.x/uOutAsp, p.y) + 0.5; return (q - 0.5)/uFit + 0.5; }
+float bayer4(vec2 q){ vec2 m = mod(q, 4.0); float x0 = mod(m.x, 2.0), x1 = floor(m.x/2.0), y0 = mod(m.y, 2.0), y1 = floor(m.y/2.0);
+  return (abs(x0-y0)*8.0 + y0*4.0 + abs(x1-y1)*2.0 + y1)/16.0 + 0.03; }
+void main(){
+  float tr = uG.z; int tt = int(uG.w + 0.5);
+  vec2 p = (vUv - 0.5)*vec2(uOutAsp, 1.0);
+  p = rot2(uA.y)*p; p /= max(0.2, uA.x); p += uA.zw;                      // camera: push-in, roll, drift
+  if (tt == 2) p *= 1.0 - 0.1*tr;
+  int mm = int(uD.w + 0.5);                                                // mirror / kaleidoscope
+  if (mm == 1) p.x = abs(p.x); else if (mm == 2) p = abs(p);
+  else if (mm == 3) { float a = atan(p.y, p.x), r = length(p), seg = 1.0471976; a = abs(mod(a, seg) - seg*0.5); p = vec2(cos(a), sin(a))*r; }
+  p *= 1.0 + uB.x*dot(p, p);                                               // lens
+  p += vec2(sin(p.y*uB.z + uTime*uB.w), cos(p.x*uB.z*0.8 + uTime*uB.w*1.3))*uB.y;   // wave warp
+  float sl = uC.y + (tt == 3 ? 0.12*tr : 0.0);                             // glitch slices
+  if (sl > 0.001) { float tk = floor(uTime*10.0), band = floor(p.y*14.0 + 3.0*hash(tk)); float on = step(0.62, hash(band + tk*7.0)); p.x += (hash(band*3.1 + tk) - 0.5)*sl*2.0*on; }
+  if (uC.z > 0.001) p = (floor(p/uC.z) + 0.5)*uC.z;                        // mosaic
+  vec2 vuv = toVid(p);
+  if (tt == 1) vuv.x += 0.22*tr*tr;
+  if (uC.x > 0.0) { float e = 0.004; vec2 g = vec2(lum(tex(vuv + vec2(e,0.0))) - lum(tex(vuv - vec2(e,0.0))), lum(tex(vuv + vec2(0.0,e))) - lum(tex(vuv - vec2(0.0,e)))); vuv += g*uC.x*8.0; }   // the picture bends light by its own brightness
+  if (uC.w > 0.0) { float d = lum(tex(vuv)); vuv += uCam*(d - 0.5)*uC.w; }   // brightness as depth: parallax
+  vec2 dir = normalize(p + vec2(0.0001))*uD.x*(0.4 + length(p))*(tt == 3 ? 1.0 + 3.0*tr : 1.0);
+  vec3 col;
+  if (tt == 1 || tt == 2) { vec3 acc = vec3(0.0); for (int i = 0; i < 9; i++) { float k = float(i)/8.0 - 0.5; vec2 off = tt == 1 ? vec2(k*0.10*tr, 0.0) : (vuv - 0.5)*k*0.12*tr; acc += tex(vuv + off); } col = acc/9.0; }
+  else col = vec3(tex(vuv + dir).r, tex(vuv).g, tex(vuv - dir).b);
+  col *= step(0.0, vuv.x)*step(vuv.x, 1.0)*step(0.0, vuv.y)*step(vuv.y, 1.0);
+  if (uD.z > 0.0) { float e = 0.0035; float a = lum(tex(vuv + vec2(-e,-e))), b = lum(tex(vuv + vec2(0.0,-e))), c = lum(tex(vuv + vec2(e,-e))), d = lum(tex(vuv + vec2(-e,0.0))), f = lum(tex(vuv + vec2(e,0.0))), g = lum(tex(vuv + vec2(-e,e))), h = lum(tex(vuv + vec2(0.0,e))), i = lum(tex(vuv + vec2(e,e)));
+    float gx = (c + 2.0*f + i) - (a + 2.0*d + g), gy = (g + 2.0*h + i) - (a + 2.0*b + c); col += uC2*smoothstep(0.08, 0.7, length(vec2(gx, gy)))*uD.z; }   // contour light
+  if (uD.y > 0.0) { vec3 bl = vec3(0.0); for (int i = 0; i < 8; i++) { float a = float(i)*0.785398; vec2 o = vec2(cos(a), sin(a))*0.012; bl += max(tex(vuv + o) - 0.55, 0.0) + 0.7*max(tex(vuv + o*2.4) - 0.55, 0.0); } col += bl/8.0*uD.y*1.3; }   // highlight bloom
+  col *= uH.z; col = (col - 0.5)*uH.x + 0.5; float l = lum(col); col = mix(vec3(l), col, uH.y);        // exposure, contrast, saturation
+  if (uE.x > 0.0) col = mix(col, mix(uC0, uC1, smoothstep(0.0, 1.0, lum(col))), uE.x);                 // duotone / split tone
+  if (uE.y > 0.5) col = floor(col*uE.y + 0.5)/uE.y;                                                    // posterise
+  if (uE.z > 0.5) { float cs = uE.z*uPxS; vec2 fc = gl_FragCoord.xy, cell = (floor(fc/cs) + 0.5)*cs, cp = (cell/uRes - 0.5)*vec2(uOutAsp, 1.0); vec3 cc = tex(toVid(cp));
+    float rad = sqrt(clamp(1.0 - lum(cc)*1.08, 0.0, 1.0))*cs*0.74, m = smoothstep(rad + 0.9, rad - 0.9, length(fc - cell)); col = mix(uC1, mix(uC0, cc, 0.3), m); }   // halftone print
+  if (uE.w > 0.5) { float cs = uE.w*uPxS; col = mix(uC0, uC1, step(bayer4(floor(gl_FragCoord.xy/cs)), lum(col))); }   // ordered dither
+  if (uG.x > 0.0) { vec3 pv = texture2D(uPrev, (vUv - 0.5)/uG.y + 0.5).rgb; col = max(col, pv*uG.x); }   // echo: last frame, slightly zoomed
+  col += (hash2(gl_FragCoord.xy + uTime*61.0) - 0.5)*uF.x*0.2;
+  col *= 1.0 - uF.y*0.4*(0.5 - 0.5*sin(gl_FragCoord.y/uPxS*3.14159));
+  col *= mix(1.0, smoothstep(1.15, 0.3, length((vUv - 0.5)*vec2(uOutAsp, 1.0))), uF.z);
+  if (abs(vUv.y - 0.5) > 0.5 - uF.w) col = vec3(0.0);
+  col += uH.w;
+  gl_FragColor = vec4(max(col, 0.0)*uVidA, 1.0);
+}`;
+const vidScene = new THREE.Scene(), blitScene = new THREE.Scene(), vidCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+const VVS = 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }';
+vidScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({uniforms: VU, vertexShader: VVS, fragmentShader: VFS, depthTest: false, depthWrite: false})));
+const blitMat = new THREE.ShaderMaterial({uniforms: {uTex: {value: null}}, vertexShader: VVS, fragmentShader: 'varying vec2 vUv; uniform sampler2D uTex; void main(){ gl_FragColor = vec4(texture2D(uTex, vUv).rgb, 1.0); }', depthTest: false, depthWrite: false});
+blitScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), blitMat));
+let rtA = null, rtB = null;
+function makeRTs(w, h){
+  [rtA, rtB].forEach(r => r && r.dispose());
+  const o = {minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthBuffer: false, stencilBuffer: false};
+  rtA = new THREE.WebGLRenderTarget(w, h, o); rtB = new THREE.WebGLRenderTarget(w, h, o);
+}
+function renderGL(){
+  if (!tex || !rtA) return;
+  renderer.autoClear = false;
+  VU.uPrev.value = rtB.texture; VU.uVid.value = tex;
+  renderer.setRenderTarget(rtA); renderer.clear(); renderer.render(vidScene, vidCam);
+  blitMat.uniforms.uTex.value = rtA.texture;
+  renderer.setRenderTarget(null); renderer.clear(); renderer.render(blitScene, vidCam);
+  if (ly('cloud') > 0.01) renderer.render(scene, camera);      // the point cloud is a light-only accent on top of the processed video
+  const t = rtA; rtA = rtB; rtB = t;                           // rtB now holds the newest frame for the echo
+}
 
 // ---------------------------------------------------------------- grid built from the video frame size
 let points = null, gw = 0, gh = 0, count = 0, aspect = 16 / 9, gscale = 1;
@@ -2341,9 +2427,10 @@ function fitCamera(){
   const [fw, fh] = fmtSize(), asp = fw / fh; camera.aspect = asp;
   const tanH = Math.tan(17.5 * DEG), objW = W * 1.15 * Math.min(1, Math.max(aspect, 0.5)), objH = W * 1.15 / Math.max(aspect, 1);
   baseZ = Math.max(objW / (2 * tanH * asp), objH / (2 * tanH), 300) + 60;
-  camera.position.set(0, 0, baseZ / zoom); camera.updateProjectionMatrix();
+  camera.position.set(0, 0, baseZ / zoom); camera.updateProjectionMatrix(); updateFit();
 }
-function setRenderSize(pw, ph){ renderer.setPixelRatio(1); renderer.setSize(pw, ph, false); U.uPR.value = ph / 900; }
+function setRenderSize(pw, ph){ renderer.setPixelRatio(1); renderer.setSize(pw, ph, false); U.uPR.value = ph / 900; makeRTs(pw, ph); VU.uRes.value.set(pw, ph); VU.uOutAsp.value = pw / ph; VU.uPxS.value = ph / 1080; updateFit(); }
+function updateFit(){ const oa = VU.uOutAsp.value; VU.uFit.value.set(aspect > oa ? 1 : aspect / oa, aspect > oa ? oa / aspect : 1); }
 function layoutStage(){
   const [fw, fh] = fmtSize(), wrap = $('stageWrap').getBoundingClientRect();
   const s = Math.min(Math.max(50, wrap.width - 32) / fw, Math.max(50, wrap.height - 32) / fh);
@@ -2563,9 +2650,7 @@ function drawLayers(ctx, w, h){
 }
 function composeFrame(ctx, w, h){
   ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over'; ctx.fillStyle = '#000'; ctx.fillRect(0, 0, w, h);
-  const va = ly('video'), ca = ly('cloud');
-  if (va > 0.01) { const vr = videoRect(w, h); ctx.globalAlpha = va; ctx.drawImage(video, vr.x, vr.y, vr.w, vr.h); ctx.globalAlpha = 1; }
-  if (ca > 0.01) { ctx.globalAlpha = ca; ctx.globalCompositeOperation = va > 0.01 ? 'lighter' : 'source-over'; ctx.drawImage(glc, 0, 0, w, h); ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1; }
+  ctx.drawImage(glc, 0, 0, w, h);       // video (processed in the shader) + point cloud
   drawLayers(ctx, w, h);
   if (AV.on && num('aFlash') > 0 && AV.K > 0.05) { ctx.save(); ctx.globalCompositeOperation = 'lighter'; const c = (PALETTES.auto || PALETTES.cyan)[0]; ctx.fillStyle = `rgba(${c[0]},${c[1]},${c[2]},${Math.min(0.3, AV.K * 0.2 * num('aFlash'))})`; ctx.fillRect(0, 0, w, h); ctx.restore(); }
 }
@@ -2716,6 +2801,9 @@ function drawHud(ctx, w, h){
     [[m, m, 1, 1], [w - m, m, -1, 1], [m, h - m, 1, -1], [w - m, h - m, -1, -1]].forEach(([x, y, a, b]) => { ctx.moveTo(x, y + L * b); ctx.lineTo(x, y); ctx.lineTo(x + L * a, y); });
     ctx.stroke(); ctx.fillStyle = 'rgba(160,220,235,.75)'; ctx.font = `${Math.round(10 * k)}px ui-monospace, Menlo, Consolas, monospace`; ctx.textBaseline = 'middle';
     ctx.fillText(`VIDEO·FIELD   ${count.toLocaleString('ru-RU')} PTS   T ${t.toFixed(2)}S` + (AV.on ? `   BPM ${AV.bpm.toFixed(0)}   BAR ${String(AV.bar + 1).padStart(3, '0')}.${AV.beatInBar + 1}` : ''), m + 8 * k, h - m - 12 * k);
+    if (autoOn && shot.n) {   // shot slate
+      const age = shot.t, al = clamp(1.4 - age / 1.8, 0, 1) * 0.9; if (al > 0.02) { ctx.fillStyle = `rgba(235,248,252,${al})`; ctx.textAlign = 'right'; ctx.fillText(`SHOT ${String(shot.i + 1).padStart(2, '0')}/${String(shot.n).padStart(2, '0')}   ${shot.name.toUpperCase()}`, w - m - 8 * k, m + 14 * k); ctx.textAlign = 'start'; }
+    }
     if (AV.on) {   // scope: three band meters + four beat cells, bottom right
       const bx = w - m - 90 * k, by = h - m - 6 * k, bw = 14 * k;
       [AV.bass, AV.mid, AV.high].forEach((v, n) => { ctx.fillStyle = 'rgba(160,220,235,.25)'; ctx.fillRect(bx + n * (bw + 4 * k), by - 30 * k, bw, 30 * k); ctx.fillStyle = 'rgba(160,220,235,.85)'; ctx.fillRect(bx + n * (bw + 4 * k), by - 30 * k * Math.min(1, v), bw, 30 * k * Math.min(1, v)); });
@@ -2832,37 +2920,89 @@ async function visualAnalyse(){
   VT = {lum: lum / N, contrast: con / N, edge: edge / N, sat: sat / N, motion: mot / N, h1: H1, h2: H2, colored};
   return VT;
 }
+// ---- video-processing parameters (VP): one set per frame, from the director's look or from the manual sliders
+const VPD = {zoom: 1, rot: 0, panx: 0, pany: 0, bulge: 0, warp: 0, warpF: 8, warpS: 1, self: 0, slice: 0, pix: 0, par: 0, ca: 0, glow: 0, edge: 0, mirror: 0, duo: 0, post: 0, half: 0, dith: 0, grain: 0, scan: 0, vig: 0, bars: 0,
+  fb: 0, fbz: 1, trans: 0, ttype: 0, exposure: 1, contrast: 1, sat: 1, flash: 0, camx: 0, camy: 0};
+const VMAP = {vZoom: 'zoom', vRot: 'rot', vBulge: 'bulge', vWarp: 'warp', vWarpF: 'warpF', vSelf: 'self', vSlice: 'slice', vPix: 'pix', vPar: 'par', vCa: 'ca', vGlow: 'glow', vEdge: 'edge', vMirror: 'mirror', vDuo: 'duo', vPost: 'post',
+  vHalf: 'half', vDith: 'dith', vGrain: 'grain', vScan: 'scan', vVig: 'vig', vBars: 'bars', vFb: 'fb', vExp: 'exposure', vCon: 'contrast', vSat: 'sat'};
+let VP = {...VPD}, VCOL = [[0.02, 0.03, 0.08], [1, 0.95, 0.85], [0.25, 0.9, 0.95]], curLook = null, shot = {i: 0, n: 0, p: 0, t: 0, tr: 0, tt: 0, name: ''};
+const hx = h => [parseInt(h.slice(1, 3), 16) / 255, parseInt(h.slice(3, 5), 16) / 255, parseInt(h.slice(5, 7), 16) / 255], toHex = c => '#' + c.map(v => Math.round(clamp(v, 0, 1) * 255).toString(16).padStart(2, '0')).join('');
+Object.keys(VMAP).filter(id => id !== 'vMirror').forEach(id => bindRange(id, v => { const st = +$(id).step; return st >= 1 ? String(v) : (st < 0.01 ? v.toFixed(3) : f2(v)); }));
+function vpFromSliders(){
+  const v = {...VPD}; Object.entries(VMAP).forEach(([id, k]) => v[k] = +$(id).value);
+  v.camx = Math.sin(U.uTime.value * 0.6) * 0.9; v.camy = Math.cos(U.uTime.value * 0.45) * 0.55;
+  if (AV.on) { v.zoom += AV.K * 0.04; if (v.ca > 0) v.ca += AV.K * 0.006; if (v.self > 0) v.self += AV.B * 0.02; if (v.glow > 0) v.glow += AV.M * 0.3; if (v.slice > 0) v.slice += AV.K * 0.05; }
+  return v;
+}
+function sliderSyncFromVP(){ Object.entries(VMAP).forEach(([id, k]) => { const el = $(id); if (el.tagName === 'SELECT') { el.value = String(VP[k]); return; } const val = clamp(VP[k], +el.min, +el.max); el.value = val; el.dispatchEvent(new Event('input')); }); ['vC0', 'vC1', 'vC2'].forEach((id, i) => { $(id).value = toHex(VCOL[i]); }); }
+function applyVideoFx(t){
+  const man = !(autoOn && curLook);
+  let v;
+  if (!man) { const a = {b: AV.B, m: AV.M, h: AV.H, k: AV.K, p: shot.p, t: shot.t, ph: AV.beatPh}; v = {...VPD, ...LOOKS[curLook.key].anim(a, curLook.v)}; VCOL = curLook.col; }
+  else { v = vpFromSliders(); VCOL = [hx($('vC0').value), hx($('vC1').value), hx($('vC2').value)]; }
+  if (!man) { v.trans = shot.tr; v.ttype = shot.tt; if (shot.tt === 4) v.flash += 0.45 * shot.tr; }
+  VP = v;
+  VU.uTime.value = t; VU.uVidA.value = ly('video'); U.uCloudA.value = ly('cloud');
+  VU.uA.value.set(v.zoom, v.rot, v.panx, v.pany); VU.uB.value.set(v.bulge, v.warp, v.warpF, v.warpS); VU.uC.value.set(v.self, v.slice, v.pix, v.par); VU.uD.value.set(v.ca, v.glow, v.edge, v.mirror);
+  VU.uE.value.set(v.duo, v.post, v.half, v.dith); VU.uF.value.set(v.grain, v.scan, v.vig, v.bars); VU.uG.value.set(v.fb, v.fbz, v.trans, v.ttype); VU.uH.value.set(v.contrast, v.sat, v.exposure, v.flash);
+  VU.uCam.value.set(v.camx, v.camy); VU.uC0.value.set(...VCOL[0]); VU.uC1.value.set(...VCOL[1]); VU.uC2.value.set(...VCOL[2]);
+}
 const DEFAULTS = {tCount: 0, tLabel: 'num', frameOn: true, nLabels: false, nDens: 100, nThr: 0.22, nMin: 6, nMax: 28, nStroke: 1.3, nShape: 'bracket', lMode: 'delaunay', lDist: 16, lConf: 0.15, lOp: 0.5, lW: 1,
-  dAlgo: 'atkinson', dPitch: 5, dThr: 0.5, dCon: 1.25, dPal: 'auto', dInv: false, dOp: 1, dBlend: 'source-over', cDir: 'down', cDens: 200, cLen: 35, cOp: 0.55, pLines: 120, pCon: 1.7, pDef: 55, pSingle: true, pW: 1.1, pAnim: 0.5, pVig: 0,
-  pCol: '#ffffff', gCols: 110, gOp: 0.85, xAmt: 0.7, geoColor: 'auto', geoBlend: 'source-over', colorMode: 1, depthY: 0.3, depth: 1, size: 1.1, orbit: 0.3, float: 0.3, scenario: 'float', aGain: 0.75, aBass: 1, aMid: 1, aHigh: 1, aBeat: 1, aScat: 0, aFlash: 0.2};
-// every look is one idea: the source frame stays readable (video layer), one hero layer, at most one supporting layer, its own palette and mood
+  pLines: 120, pCon: 1.7, pDef: 55, pSingle: true, pW: 1.1, pAnim: 0.5, pVig: 0, pCol: '#ffffff', gCols: 110, gOp: 0.85, geoColor: 'auto', geoBlend: 'source-over', colorMode: 1, depthY: 0.3, depth: 1, size: 1.1, orbit: 0.3, float: 0.3, scenario: 'float',
+  aGain: 0.75, aBass: 1, aMid: 1, aHigh: 1, aBeat: 1, aScat: 0, aFlash: 0};
+const PAIRS = [['#1c36ff', '#efe9dc'], ['#0f4a2c', '#eef0dc'], ['#e0261d', '#f3ece2'], ['#101010', '#f2f2f2'], ['#6a1fff', '#ffe14a'], ['#0b8fa8', '#f4fbfb']];
+const P01 = i => PALETTES.auto[i].map(v => v / 255), dark = (c, k) => c.map(v => v * k), light = (c, k) => c.map(v => v + (1 - v) * k);
+// Each look is a short film-grammar idea: what the picture does to itself (anim), how the cut arrives (enter), colour (pal), plus rare 2D accents (layers / set).
+// anim gets a = {b: bass, m: mid, h: high, k: kick, p: progress through the shot, t: seconds into the shot}
 const LOOKS = {
-  film:      {name: 'Кино',    hue: 38,  fam: 'o', layers: {video: 1, nodes: 0.9}, fx: {},
-    set: (pk) => ({nDens: pk([50, 70, 90]), nThr: 0.3, nShape: pk(['bracket', 'cross', 'circle']), nMin: 8, nMax: 24, nStroke: 1.2, geoColor: 'mono', orbit: 0, scenario: 'static', aFlash: 0.1})},
-  blueprint: {name: 'Схема',   hue: 205, fam: 'o', layers: {video: 0.5, links: 1, nodes: 1}, fx: {},
-    set: (pk, rg) => ({nDens: rg(90, 130), nThr: 0.2, nShape: pk(['circle', 'cross', 'diamond']), nLabels: true, lMode: pk(['delaunay', 'hybrid', 'proximity']), lDist: 18, lOp: 0.5, geoColor: 'cyan', tCount: 7, tLabel: 'xyz', aFlash: 0.15, orbit: 0})},
-  print:     {name: 'Печать',  hue: 48,  fam: 'r', layers: {dither: 1}, fx: {},
-    set: (pk) => ({dAlgo: pk(['atkinson', 'fs', 'bayer', 'noise']), dPitch: pk([4, 5, 6]), dPal: pk(['cobalt', 'electric', 'forest', 'red', 'mono', 'cyan']), dCon: 1.35, dInv: pk([false, false, true]), frameOn: false, aFlash: 0, orbit: 0})},
-  plotter:   {name: 'Плоттер', hue: 150, fam: 'r', layers: {video: 0.3, plot: 1}, fx: {},
-    set: (pk) => ({pLines: pk([110, 140, 170]), pCon: 1.8, pCol: pk(['#ffffff', '#3fe3f2', '#ff4d3a']), pW: 1.1, pAnim: 0.7, pVig: pk([0, 0.4]), frameOn: false, aFlash: 0})},
-  cloud:     {name: 'Облако',  hue: 190, fam: 'c', layers: {video: 0.3, cloud: 1}, fx: {fxTurb: 0.25, fxPulse: 0.2},
-    set: (pk) => ({colorMode: pk([4, 5, 0]), depthY: 0.45, depth: 1.3, orbit: 0.5, size: 1, float: 0.35, aFlash: 0.2})},
-  glyph:     {name: 'Глифы',   hue: 120, fam: 'r', layers: {video: 0.3, glyph: 1}, fx: {},
-    set: (pk) => ({gCols: pk([90, 120, 160]), geoColor: pk(['mono', 'solar', 'cyan']), gOp: 0.9, frameOn: false, aFlash: 0, orbit: 0})},
-  curtain:   {name: 'Свет',    hue: 285, fam: 'o', layers: {video: 1, curtain: 0.65}, fx: {},
-    set: (pk) => ({cDir: pk(['down', 'up', 'both']), cDens: 220, cLen: pk([30, 45]), cOp: 0.6, geoColor: pk(['source', 'auto']), geoBlend: 'screen', aFlash: 0.2, orbit: 0})},
-  drop:      {name: 'Дроп',    hue: 345, fam: 'o', layers: {video: 0.8, cloud: 0.5, nodes: 0.45, glitch: 0.8}, fx: {fxPulse: 0.4, fxWave: 0.3},
-    set: () => ({colorMode: 5, nDens: 70, nShape: 'bracket', geoColor: 'auto', xAmt: 0.7, aFlash: 0.5, aScat: 0.22, orbit: 0.5, depthY: 0.3, tCount: 5, tLabel: 'num'})},
+  film:       {name: 'Кино',       hue: 38,  fam: 'g', enter: 4, layers: {video: 1}, fx: {}, vs: pk => ({drift: pk([0.05, 0.08]), dir: pk([-1, 1])}),
+    pal: () => [[0.04, 0.2, 0.24], [1, 0.83, 0.64], [1, 1, 1]], set: () => ({frameOn: true, aFlash: 0.1}),
+    anim: (a, v) => ({zoom: 1 + v.drift * a.p, panx: v.dir * 0.03 * (a.p - 0.5), exposure: 0.96, contrast: 1.12, sat: 0.92, duo: 0.22, glow: 0.12 + 0.25 * a.m, grain: 0.35, vig: 0.5, bars: 0.095, ca: 0.0012})},
+  liquid:     {name: 'Жидкое стекло', hue: 190, fam: 'w', enter: 2, layers: {video: 1}, fx: {}, vs: pk => ({f: pk([6, 9, 12]), s: pk([0.8, 1.3])}),
+    pal: () => [dark(P01(1), 0.2), light(P01(0), 0.55), P01(0)], set: () => ({frameOn: false, aFlash: 0.1}),
+    anim: (a, v) => ({zoom: 1.03 + 0.03 * Math.sin(a.t * 0.5), rot: 0.012 * Math.sin(a.t * 0.4), self: 0.014 + 0.05 * a.b, warp: 0.003 + 0.007 * a.m, warpF: v.f, warpS: v.s, ca: 0.002 + 0.012 * a.k, glow: 0.3 + 0.5 * a.m, sat: 1.25, contrast: 1.1, duo: 0.1, vig: 0.3, grain: 0.1})},
+  neon:       {name: 'Неон-контур', hue: 300, fam: 'e', enter: 4, layers: {video: 1}, fx: {}, vs: () => ({}),
+    pal: () => [[0.01, 0.02, 0.08], light(P01(1), 0.5), light(P01(0), 0.15)], set: () => ({frameOn: false, aFlash: 0.2}),
+    anim: (a) => ({exposure: 0.5, contrast: 1.3, sat: 0.7, duo: 0.35, edge: 0.9 + 1.3 * a.k, glow: 0.7 + 0.7 * a.h, ca: 0.002 + 0.007 * a.k, zoom: 1 + 0.05 * a.p, vig: 0.55, scan: 0.12, grain: 0.12})},
+  halftone:   {name: 'Полутон',    hue: 48,  fam: 'p', enter: 3, layers: {video: 1}, fx: {}, vs: pk => ({cell: pk([8, 10, 14]), pair: pk(PAIRS)}),
+    pal: (v) => [hx(v.pair[0]), hx(v.pair[1]), hx(v.pair[0])], set: () => ({frameOn: false, aFlash: 0}),
+    anim: (a, v) => ({half: v.cell * (1 + 0.3 * a.k), contrast: 1.25, zoom: 1 + 0.04 * Math.sin(a.t * 0.5), grain: 0.15, vig: 0.2})},
+  glitchtape: {name: 'Рваная лента', hue: 330, fam: 'x', enter: 3, layers: {video: 1}, fx: {}, vs: () => ({}),
+    pal: () => [[0.05, 0, 0.12], [0.85, 1, 0.95], light(P01(1), 0.2)], set: () => ({frameOn: true, aFlash: 0.15}),
+    anim: (a) => ({slice: 0.015 + 0.2 * a.k, ca: 0.005 + 0.022 * a.k, scan: 0.4, grain: 0.5, fb: 0.3, fbz: 1.003, sat: 0.85, duo: 0.12, contrast: 1.2, warp: 0.001 + 0.012 * a.k, warpF: 45, warpS: 6, vig: 0.35, flash: 0.12 * a.k})},
+  parallax:   {name: 'Параллакс',  hue: 25,  fam: 'w', enter: 1, layers: {video: 1, cloud: 0.22}, fx: {}, vs: () => ({}),
+    pal: () => [[0.05, 0.03, 0.04], [1, 0.9, 0.78], [1, 1, 1]], set: () => ({frameOn: true, colorMode: 0, depthY: 0.3, orbit: 0.3, size: 0.9, aFlash: 0.1}),
+    anim: (a) => ({par: 0.11 + 0.07 * a.b, camx: Math.sin(a.t * 0.6) * 0.9, camy: Math.cos(a.t * 0.45) * 0.55, zoom: 1.12, contrast: 1.2, sat: 1.15, vig: 0.55, glow: 0.25 + 0.2 * a.m, grain: 0.14, duo: 0.15})},
+  mirror:     {name: 'Зеркало',    hue: 270, fam: 'k', enter: 2, layers: {video: 1}, fx: {}, vs: pk => ({mode: pk([1, 2, 3]), spin: pk([0.06, 0.1])}),
+    pal: () => [dark(P01(1), 0.2), light(P01(0), 0.6), P01(0)], set: () => ({frameOn: false, aFlash: 0.1}),
+    anim: (a, v) => ({mirror: v.mode, rot: v.mode === 3 ? a.t * v.spin : 0.02 * Math.sin(a.t * 0.5), zoom: 1.12 + 0.1 * a.b, post: 6, duo: 0.3, sat: 1.4, contrast: 1.15, ca: 0.003 + 0.01 * a.k, vig: 0.35})},
+  echo:       {name: 'Эхо',        hue: 170, fam: 'g', enter: 4, layers: {video: 1}, fx: {}, vs: () => ({}),
+    pal: () => [dark(P01(1), 0.25), light(P01(0), 0.5), P01(0)], set: () => ({frameOn: false, aFlash: 0.1}),
+    anim: (a) => ({fb: 0.88, fbz: 1.012 + 0.014 * a.b, rot: 0.008 * Math.sin(a.t * 0.7), glow: 0.75, sat: 1.4, ca: 0.004 + 0.008 * a.k, duo: 0.3, contrast: 1.15, vig: 0.45, grain: 0.15})},
+  mosaic:     {name: 'Мозаика',    hue: 100, fam: 'p', enter: 3, layers: {video: 1}, fx: {}, vs: pk => ({c: pk([0.03, 0.04]), pair: pk(PAIRS)}),
+    pal: (v) => [hx(v.pair[0]), hx(v.pair[1]), hx(v.pair[0])], set: () => ({frameOn: false, aFlash: 0}),
+    anim: (a, v) => ({pix: v.c * (1 - 0.85 * a.k) + 0.006, post: 6, duo: 0.4, contrast: 1.2, zoom: 1 + 0.03 * a.p, ca: 0.002, vig: 0.3})},
+  drop:       {name: 'Дроп',       hue: 345, fam: 'x', enter: 2, layers: {video: 1, cloud: 0.4}, fx: {}, vs: () => ({}),
+    pal: () => [[0.03, 0.02, 0.06], [1, 1, 1], light(P01(0), 0.1)], set: () => ({frameOn: true, colorMode: 0, aFlash: 0.45, aScat: 0.2, orbit: 0.5, depthY: 0.3, tCount: 5, tLabel: 'num'}),
+    anim: (a) => ({zoom: 1.03 + 0.1 * a.k + 0.04 * a.p, ca: 0.012 + 0.035 * a.k, slice: a.k > 0.35 ? 0.02 + 0.1 * a.k : 0, flash: 0.3 * a.k, glow: 0.6 + 0.7 * a.k, bulge: 0.05 + 0.12 * a.k, sat: 1.45, contrast: 1.3, fb: 0.25, grain: 0.2, vig: 0.5, duo: 0.12})},
+  blueprint:  {name: 'Схема',      hue: 205, fam: 'e', enter: 4, layers: {video: 1, links: 1, nodes: 1}, fx: {}, vs: () => ({}),
+    pal: () => [[0.01, 0.05, 0.18], [0.55, 0.85, 1], [0.4, 0.9, 1]], set: (pk, rg) => ({nDens: rg(90, 130), nThr: 0.2, nShape: pk(['circle', 'cross', 'diamond']), nLabels: true, lMode: pk(['delaunay', 'hybrid', 'proximity']), lDist: 18, lOp: 0.5, geoColor: 'cyan', tCount: 7, tLabel: 'xyz', aFlash: 0.1}),
+    anim: () => ({exposure: 0.6, contrast: 1.3, sat: 0, duo: 0.85, edge: 0.8, grain: 0.1, vig: 0.4})},
+  plotter:    {name: 'Линии',      hue: 150, fam: 'p', enter: 1, layers: {video: 0.3, plot: 1}, fx: {}, vs: () => ({}),
+    pal: () => [[0.02, 0.03, 0.08], [1, 0.95, 0.85], [1, 1, 1]], set: (pk) => ({pLines: pk([110, 140, 170]), pCon: 1.8, pCol: pk(['#ffffff', '#3fe3f2', '#ff4d3a']), pW: 1.1, pAnim: 0.7, pVig: pk([0, 0.4]), frameOn: false}),
+    anim: () => ({exposure: 0.85, contrast: 1.1})},
+  glyph:      {name: 'Глифы',      hue: 120, fam: 'p', enter: 4, layers: {video: 0.3, glyph: 1}, fx: {}, vs: () => ({}),
+    pal: () => [[0.02, 0.03, 0.08], [1, 0.95, 0.85], [1, 1, 1]], set: (pk) => ({gCols: pk([90, 120, 160]), geoColor: pk(['mono', 'solar', 'cyan']), gOp: 0.9, frameOn: false}),
+    anim: () => ({exposure: 0.85})},
 };
 const WEIGHTS = [
-  {film: 3, cloud: 2.5, blueprint: 2, curtain: 1.5, glyph: 0.7},
-  {film: 2, blueprint: 2.5, curtain: 2, plotter: 2, cloud: 1.5, glyph: 1.2, print: 1},
-  {drop: 3.5, print: 2.5, glyph: 1.5, plotter: 1.5, curtain: 1.5, cloud: 1.5},
+  {film: 3, liquid: 2.5, parallax: 2.5, echo: 2, neon: 1.2, blueprint: 0.8, mirror: 0.8, glyph: 0.5, plotter: 0.5},
+  {liquid: 2.5, neon: 2.5, parallax: 2, halftone: 2, mosaic: 1.5, echo: 1.5, mirror: 1.5, film: 1.2, glitchtape: 1.2, plotter: 1, glyph: 1, blueprint: 1},
+  {drop: 3.5, glitchtape: 3, mosaic: 2.5, halftone: 2.5, mirror: 2.5, neon: 2, echo: 1.2, liquid: 1.2},
 ];
 function makeLook(key, level, R){
-  const T = LOOKS[key], pk = a => a[Math.floor(R() * a.length)], rg = (a, b) => Math.round(a + R() * (b - a)), fx = {};
-  Object.entries(T.fx).forEach(([id, v]) => fx[id] = clamp(v * (AU ? 0.8 + 0.25 * level : 1), 0.1, 1));
-  return {key, name: T.name, hue: T.hue, level, layers: {...T.layers}, fx, p: T.set(pk, rg)};
+  const T = LOOKS[key], pk = a => a[Math.floor(R() * a.length)], rg = (a, b) => Math.round(a + R() * (b - a)), v = T.vs(pk);
+  return {key, name: T.name, hue: T.hue, level, layers: {...T.layers}, fx: {}, p: T.set(pk, rg), v, col: T.pal(v)};
 }
 function buildPlan(){
   if (!hasVideo) return;
@@ -2870,16 +3010,17 @@ function buildPlan(){
   if (AU) AU.sections.forEach(g => { const a = Math.max(g.t0, st) - st, b = Math.min(g.t1, st + D) - st; if (b - a > 0.3) secs.push({t0: a, t1: b, level: g.level}); });
   if (!secs.length) secs = [{t0: 0, t1: D, level: 1}];
   secs[0].t0 = 0; secs[secs.length - 1].t1 = D; for (let i = 1; i < secs.length; i++) secs[i].t0 = secs[i - 1].t1;
-  // shots of about 8 beats (about 4 s), cut on the beat grid so every change lands on the music
-  const shot = AU ? clamp(AU.beatLen * 8, 3, 6) : 4, split = [];
-  secs.forEach(g => { const len = g.t1 - g.t0, n = Math.max(1, Math.round(len / shot)); for (let i = 0; i < n; i++) split.push({t0: g.t0 + len * i / n, t1: g.t0 + len * (i + 1) / n, level: g.level}); });
+  // shots of about 8 beats, cut on the beat grid so every change lands on the music
+  const shotLen = AU ? clamp(AU.beatLen * 8, 3, 6) : 4, split = [];
+  secs.forEach(g => { const len = g.t1 - g.t0, n = Math.max(1, Math.round(len / shotLen)); for (let i = 0; i < n; i++) split.push({t0: g.t0 + len * i / n, t1: g.t0 + len * (i + 1) / n, level: g.level}); });
   const hist = [];
   planSecs = split.map(g => {
-    const w = {...WEIGHTS[g.level]}, V = VT || {lum: 0.4, edge: 0.1, sat: 0.2, motion: 0.05};
-    if (V.lum > 0.55) { w.print = (w.print || 0) * 1.8; w.plotter = (w.plotter || 0) * 1.6; w.cloud = (w.cloud || 0) * 0.5; w.drop = (w.drop || 0) * 0.7; }
-    if (V.lum < 0.25) { w.cloud = (w.cloud || 0) * 1.4; w.curtain = (w.curtain || 0) * 1.4; w.print = (w.print || 0) * 0.6; }
-    if (V.edge > 0.12) { w.blueprint = (w.blueprint || 0) * 1.5; w.film = (w.film || 0) * 1.2; }
-    if (V.sat > 0.3) { w.curtain = (w.curtain || 0) * 1.4; w.cloud = (w.cloud || 0) * 1.2; }
+    const w = {...WEIGHTS[g.level]}, V = VT || {lum: 0.4, edge: 0.1, sat: 0.2, motion: 0.05}, mul = (k, f) => { if (w[k]) w[k] *= f; };
+    if (V.lum > 0.55) { mul('halftone', 1.5); mul('plotter', 1.4); mul('neon', 0.8); mul('echo', 0.7); }
+    if (V.lum < 0.25) { mul('neon', 1.4); mul('echo', 1.3); mul('parallax', 1.2); }
+    if (V.edge > 0.12) { mul('blueprint', 1.5); mul('neon', 1.3); mul('liquid', 1.2); }
+    if (V.sat > 0.3) { mul('mirror', 1.3); mul('echo', 1.2); mul('liquid', 1.2); }
+    if (V.motion > 0.08) { mul('glitchtape', 1.3); mul('drop', 1.2); mul('echo', 0.7); }
     // maximise contrast between neighbours: never the same look within three shots, and avoid the same family back to back
     Object.keys(w).forEach(k => { if (hist.slice(-3).includes(k)) w[k] *= 0.04; else { if (hist.length && LOOKS[hist[hist.length - 1]].fam === LOOKS[k].fam) w[k] *= 0.35; if (hist.length > 1 && LOOKS[hist[hist.length - 2]].fam === LOOKS[k].fam) w[k] *= 0.75; } });
     const tot = Object.values(w).reduce((a, b) => a + b, 0); let r = R() * tot, key = Object.keys(w)[0];
@@ -2891,20 +3032,22 @@ function buildPlan(){
 function setv(id, val){ const el = $(id); if (!el) return; if (el.type === 'checkbox') { el.checked = !!val; el.dispatchEvent(new Event('change')); } else { el.value = val; el.dispatchEvent(new Event('input')); el.dispatchEvent(new Event('change')); } }
 function setFx(id, on, val){ fxOn[id] = on; if (val !== undefined) { $(id).value = val; $(id).parentElement.querySelector('output').textContent = f2(+val); } applyFx(id); }
 function applyLook(sec){
-  const L = sec.look;
+  const L = sec.look; curLook = L;
   Object.entries(DEFAULTS).forEach(([k, v]) => setv(k, v)); Object.entries(L.p).forEach(([k, v]) => setv(k, v));
-  Object.keys(FX).forEach(id => setFx(id, id in L.fx, L.fx[id]));
+  Object.keys(FX).forEach(id => setFx(id, false));
 }
 function applyAuto(t){
   if (!autoOn || !planSecs.length) return;
   let si = planSecs.findIndex(g => t >= g.t0 && t < g.t1); if (si < 0) si = t < planSecs[0].t0 ? 0 : planSecs.length - 1;
   const sec = planSecs[si]; if (si !== curSec) { applyLook(sec); curSec = si; syncSwitches(); markSec(); }
-  const prev = si > 0 ? planSecs[si - 1] : null, r = prev ? clamp((t - sec.t0) / 0.4, 0, 1) : 1, e = r * r * (3 - 2 * r);
+  const prev = si > 0 ? planSecs[si - 1] : null, r = prev ? clamp((t - sec.t0) / 0.15, 0, 1) : 1, e = r * r * (3 - 2 * r);
   Object.keys(LA).forEach(k => { LA[k] = (sec.look.layers[k] || 0) * e + (prev ? (prev.look.layers[k] || 0) * (1 - e) : 0); });
+  const age = t - sec.t0;
+  shot = {i: si, n: planSecs.length, p: clamp(age / Math.max(0.1, sec.t1 - sec.t0), 0, 1), t: age, tr: prev && age < 0.9 ? Math.exp(-age / 0.17) : 0, tt: prev ? LOOKS[sec.look.key].enter : 0, name: sec.look.name};
 }
 function setAuto(on){
   if (on && !hasVideo) on = false;
-  if (!on && autoOn) { Object.keys(lyOn).forEach(k => lyOn[k] = LA[k] > 0.5); $('cloudOn').checked = LA.cloud > 0.5; }
+  if (!on && autoOn) { Object.keys(lyOn).forEach(k => lyOn[k] = LA[k] > 0.5); $('cloudOn').checked = LA.cloud > 0.5; $('underlay').value = LA.video; $('underlay').dispatchEvent(new Event('input')); sliderSyncFromVP(); }
   autoOn = on; $('autoOn').checked = on; document.body.classList.toggle('auto', on); curSec = -1;
   if (on && !planSecs.length) buildPlan();
   syncSwitches(); tlDirty = true;
@@ -2992,8 +3135,12 @@ addEventListener('resize', sizeTimeline);
 const MODS = [
   ['ИСТОЧНИК', [['source', 'Видео', 'p-source', () => hasVideo, null, () => hasVideo ? fmtT(getDur()) : '—'], ['audio', 'Звук и ритм', 'p-audio', () => AV.on, () => $('audOn').click(), () => AU ? AU.bpm.toFixed(0) + ' BPM' : 'нет звука']]],
   ['РЕЖИССЁР', [['auto', 'Авто-режиссёр', 'p-auto', () => autoOn, () => setAuto(!autoOn), () => autoOn ? `секция ${Math.max(1, curSec + 1)}/${planSecs.length}` : 'ручной']]],
+  ['ОБРАБОТКА ВИДЕО', [['vgeo', 'Геометрия кадра', 'p-vgeo', () => autoOn ? 1 : (VP.zoom !== 1 || VP.rot || VP.bulge || VP.warp || VP.mirror || VP.pix || VP.par ? 1 : 0.15), null, () => VP.mirror ? 'зеркало' : VP.par ? 'параллакс' : VP.pix ? 'мозаика' : VP.warp ? 'волна' : '—'],
+    ['vcont', 'По содержанию', 'p-vcont', () => autoOn ? 1 : (VP.self || VP.slice || VP.ca || VP.edge || VP.glow || VP.fb ? 1 : 0.15), null, () => VP.self ? 'самопреломление' : VP.edge ? 'контуры' : VP.fb ? 'эхо' : VP.ca ? 'RGB-сдвиг' : '—'],
+    ['vcol', 'Цвет и печать', 'p-vcol', () => autoOn ? 1 : (VP.duo || VP.post || VP.half || VP.dith || VP.sat !== 1 || VP.contrast !== 1 ? 1 : 0.15), null, () => VP.half ? 'полутон' : VP.dith ? 'дизеринг' : VP.duo ? 'две краски' : '—'],
+    ['vfilm', 'Плёнка', 'p-vfilm', () => autoOn ? 1 : (VP.grain || VP.scan || VP.vig || VP.bars ? 1 : 0.15), null, () => VP.bars ? 'полосы' : VP.grain ? 'зерно' : '—']]],
   ['ОБЛАКО ТОЧЕК', [['cloud', 'Облако и глубина', 'p-cloud', () => ly('cloud'), () => toggleLayer('cloud'), () => $('colorMode').selectedOptions[0].textContent], ['scene', 'Сцена', 'p-scene', () => 1, null, () => $('scenario').selectedOptions[0].textContent.split(' (')[0]]]],
-  ['ЭФФЕКТЫ', [['fxPulse', 'Пульсация', 'p-fxPulse'], ['fxWave', 'Волны', 'p-fxWave'], ['fxMag', 'Магнит', 'p-fxMag'], ['fxTurb', 'Турбулентность', 'p-fxTurb'], ['fxScan', 'Скан-линия', 'p-fxScan']].map(([id, n, pane]) => [id, n, pane, () => fxOn[id] ? 1 : 0, () => { if (autoOn) setAuto(false); fxOn[id] = !fxOn[id]; applyFx(id); }, () => fxOn[id] ? f2(+$(id).value) : 'выкл'])],
+  ['ЭФФЕКТЫ ОБЛАКА', [['fxPulse', 'Пульсация', 'p-fxPulse'], ['fxWave', 'Волны', 'p-fxWave'], ['fxMag', 'Магнит', 'p-fxMag'], ['fxTurb', 'Турбулентность', 'p-fxTurb'], ['fxScan', 'Скан-линия', 'p-fxScan']].map(([id, n, pane]) => [id, n, pane, () => fxOn[id] ? 1 : 0, () => { if (autoOn) setAuto(false); fxOn[id] = !fxOn[id]; applyFx(id); }, () => fxOn[id] ? f2(+$(id).value) : 'выкл'])],
   ['ГРАФИКА', [['gfx', 'Цвет и наложение', 'p-gfx', () => 1, null, () => $('geoColor').selectedOptions[0].textContent],
     ['nodes', 'Узлы и фигуры', 'p-nodes', () => ly('nodes'), () => toggleLayer('nodes'), () => $('nShape').selectedOptions[0].textContent],
     ['links', 'Связи', 'p-links', () => ly('links'), () => toggleLayer('links'), () => $('lMode').selectedOptions[0].textContent.split(' (')[0]],
@@ -3043,7 +3190,7 @@ function frame(){
     updateCam(); applyScene(t); applyAuto(t); applyAudio(t);
     tex.needsUpdate = true;
     if (tracked.length || needCpu) updateCpu();
-    if (ly('cloud') > 0.01) renderer.render(scene, camera);
+    applyVideoFx(t); renderGL();
     composeFrame(vctx, view.width, view.height); drawHud(hctx, hud.width, hud.height);
     drawTimeline(t); refreshNav();
   }
@@ -3064,7 +3211,7 @@ function seekTo(t){
 }
 function renderAt(t, fw, fh, comp, cctx){
   applyScene(t); applyAuto(t); applyAudio(t); tex.needsUpdate = true; updateCpu();
-  if (ly('cloud') > 0.01) renderer.render(scene, camera);
+  applyVideoFx(t); renderGL();
   composeFrame(cctx, fw, fh);
   drawHud(hudCtx, fw, fh); cctx.drawImage(hudOff, 0, 0);
 }
