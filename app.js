@@ -345,9 +345,9 @@ addEventListener('resize', () => { if (!exporting) layoutStage(); });
 
 // ---------------------------------------------------------------- graphic layers (contours, nodes, links, dither, curtain, plotter lines)
 const lyOn = {nodes: false, links: false, dither: false, curtain: false, plot: false, glyph: false, glitch: false};
-const LA = {cloud: 1, nodes: 0, links: 0, dither: 0, curtain: 0, plot: 0, glyph: 0, glitch: 0};
+const LA = {video: 0, cloud: 1, nodes: 0, links: 0, dither: 0, curtain: 0, plot: 0, glyph: 0, glitch: 0};
 let autoOn = false;
-const ly = k => autoOn ? (LA[k] || 0) : (k === 'cloud' ? ($('cloudOn').checked ? 1 : 0) : (lyOn[k] ? 1 : 0));
+const ly = k => k === 'video' ? (autoOn ? (LA.video || 0) : num('underlay')) : autoOn ? (LA[k] || 0) : (k === 'cloud' ? ($('cloudOn').checked ? 1 : 0) : (lyOn[k] ? 1 : 0));
 function toggleLayer(k){ if (autoOn) setAuto(false); if (k === 'cloud') $('cloudOn').checked = !$('cloudOn').checked; else lyOn[k] = !lyOn[k]; syncSwitches(); }
 document.querySelectorAll('.sw[data-ly]').forEach(b => b.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); toggleLayer(b.dataset.ly); }));
 function syncSwitches(){
@@ -505,7 +505,6 @@ function glitch(ctx, w, h, a){
 function drawLayers(ctx, w, h){
   const vr = videoRect(w, h), k = Math.min(w, h) / 1080, t = U.uTime.value, on = n => ly(n) > 0.01;
   ctx.save();
-  if (num('underlay') > 0) { ctx.globalAlpha = num('underlay'); ctx.drawImage(video, vr.x, vr.y, vr.w, vr.h); ctx.globalAlpha = 1; }
   if (on('dither')) dither(ctx, vr, w, h, ly('dither'));
   const geo = on('nodes') || on('links') || on('curtain');
   if (geo || on('plot') || on('glyph')) ctx.globalCompositeOperation = $('geoBlend').value;
@@ -552,9 +551,11 @@ function drawLayers(ctx, w, h){
 }
 function composeFrame(ctx, w, h){
   ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over'; ctx.fillStyle = '#000'; ctx.fillRect(0, 0, w, h);
-  { const ca = ly('cloud'); if (ca > 0.01) { ctx.globalAlpha = ca; ctx.drawImage(glc, 0, 0, w, h); ctx.globalAlpha = 1; } }
+  const va = ly('video'), ca = ly('cloud');
+  if (va > 0.01) { const vr = videoRect(w, h); ctx.globalAlpha = va; ctx.drawImage(video, vr.x, vr.y, vr.w, vr.h); ctx.globalAlpha = 1; }
+  if (ca > 0.01) { ctx.globalAlpha = ca; ctx.globalCompositeOperation = va > 0.01 ? 'lighter' : 'source-over'; ctx.drawImage(glc, 0, 0, w, h); ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1; }
   drawLayers(ctx, w, h);
-  if (AV.on && num('aFlash') > 0 && AV.K > 0.05) { ctx.save(); ctx.globalCompositeOperation = 'lighter'; const c = (PALETTES.auto || PALETTES.cyan)[0]; ctx.fillStyle = `rgba(${c[0]},${c[1]},${c[2]},${Math.min(0.35, AV.K * 0.22 * num('aFlash'))})`; ctx.fillRect(0, 0, w, h); ctx.restore(); }
+  if (AV.on && num('aFlash') > 0 && AV.K > 0.05) { ctx.save(); ctx.globalCompositeOperation = 'lighter'; const c = (PALETTES.auto || PALETTES.cyan)[0]; ctx.fillStyle = `rgba(${c[0]},${c[1]},${c[2]},${Math.min(0.3, AV.K * 0.2 * num('aFlash'))})`; ctx.fillRect(0, 0, w, h); ctx.restore(); }
 }
 
 
@@ -591,7 +592,7 @@ async function analyseAudio(file){
   for (let i = 0; i < F; i++) os[i] = fb[i] + 0.5 * fh[i] + 0.5 * fm[i];
   // tempo: autocorrelation of the onset curve, weighted towards 120 BPM so half/double tempo does not win
   let mean = 0; for (let i = 0; i < F; i++) mean += os[i]; mean /= F;
-  const z = Float32Array.from(os, v => v - mean), minLag = Math.round(AH * 60 / 215), maxLag = Math.min(F - 2, Math.round(AH * 60 / 65)), ac = [];
+  const z = Float32Array.from(os, v => v - mean), minLag = Math.round(AH * 60 / 190), maxLag = Math.min(F - 2, Math.round(AH * 60 / 65)), ac = [];
   let best = -1e9, bl = Math.round(AH * 0.5);
   for (let lag = minLag; lag <= maxLag; lag++) { let sacc = 0; for (let i = lag; i < F; i++) sacc += z[i] * z[i - lag]; sacc /= (F - lag);
     const bpm = AH * 60 / lag; ac[lag] = sacc * Math.exp(-0.5 * Math.pow(Math.log2(bpm / 120) / 0.7, 2)); if (ac[lag] > best) { best = ac[lag]; bl = lag; } }
@@ -643,7 +644,7 @@ function applyAudio(t){
   U.uPulse.value = fxBase('fxPulse') + B * 0.5; U.uWave.value = fxBase('fxWave') + M * 0.35; U.uTurb.value = fxBase('fxTurb') + H * 0.4;
   U.uScan.value = fxBase('fxScan') + (K > 0.15 ? K * 0.8 : 0); U.uSize.value = +$('size').value + K * 0.8; U.uDepth.value = +$('depth').value * (1 + B * 0.6);
   if (g > 0) U.uScatter.value = Math.max(U.uScatter.value, K * num('aScat'));
-  camera.position.z = baseZ / (zoom * (1 + K * 0.05));
+  camera.position.z = baseZ / (zoom * (1 + K * 0.035));
   AM = {};
   if (g > 0) {
     AM.nDens = v => v * (1 + 0.7 * K); AM.nMax = v => v * (1 + 0.5 * K); AM.lOp = v => clamp(v + 0.4 * M, 0, 1); AM.cLen = v => v * (1 + 0.8 * B);
@@ -819,53 +820,68 @@ async function visualAnalyse(){
   VT = {lum: lum / N, contrast: con / N, edge: edge / N, sat: sat / N, motion: mot / N, h1: H1, h2: H2, colored};
   return VT;
 }
+const DEFAULTS = {tCount: 0, tLabel: 'num', frameOn: true, nLabels: false, nDens: 100, nThr: 0.22, nMin: 6, nMax: 28, nStroke: 1.3, nShape: 'bracket', lMode: 'delaunay', lDist: 16, lConf: 0.15, lOp: 0.5, lW: 1,
+  dAlgo: 'atkinson', dPitch: 5, dThr: 0.5, dCon: 1.25, dPal: 'auto', dInv: false, dOp: 1, dBlend: 'source-over', cDir: 'down', cDens: 200, cLen: 35, cOp: 0.55, pLines: 120, pCon: 1.7, pDef: 55, pSingle: true, pW: 1.1, pAnim: 0.5, pVig: 0,
+  pCol: '#ffffff', gCols: 110, gOp: 0.85, xAmt: 0.7, geoColor: 'auto', geoBlend: 'source-over', colorMode: 1, depthY: 0.3, depth: 1, size: 1.1, orbit: 0.3, float: 0.3, scenario: 'float', aGain: 0.75, aBass: 1, aMid: 1, aHigh: 1, aBeat: 1, aScat: 0, aFlash: 0.2};
+// every look is one idea: the source frame stays readable (video layer), one hero layer, at most one supporting layer, its own palette and mood
 const LOOKS = {
-  aura:    {name: 'Аура',    hue: 190, layers: {cloud: 1},                                         fx: {fxTurb: 0.3, fxPulse: 0.25},                    color: [5, 4, 0]},
-  net:     {name: 'Сеть',    hue: 215, layers: {cloud: 0.5, nodes: 1, links: 1},                   fx: {fxPulse: 0.3, fxWave: 0.25},                    color: [4, 5]},
-  print:   {name: 'Печать',  hue: 40,  layers: {dither: 1, nodes: 0.55, cloud: 0.22},              fx: {fxScan: 0.4},                                   color: [5, 0]},
-  plotter: {name: 'Плоттер', hue: 150, layers: {plot: 1, curtain: 0.55},                           fx: {fxTurb: 0.2},                                   color: [5, 2]},
-  glyph:   {name: 'Глифы',   hue: 120, layers: {glyph: 1, cloud: 0.3, links: 0.5},                 fx: {fxWave: 0.3},                                   color: [5, 0]},
-  drop:    {name: 'Дроп',    hue: 345, layers: {cloud: 1, nodes: 1, links: 0.8, curtain: 0.7, glitch: 1}, fx: {fxPulse: 0.5, fxWave: 0.4, fxScan: 0.6}, color: [4, 0, 5], kick: 0.45},
+  film:      {name: 'Кино',    hue: 38,  fam: 'o', layers: {video: 1, nodes: 0.9}, fx: {},
+    set: (pk) => ({nDens: pk([50, 70, 90]), nThr: 0.3, nShape: pk(['bracket', 'cross', 'circle']), nMin: 8, nMax: 24, nStroke: 1.2, geoColor: 'mono', orbit: 0, scenario: 'static', aFlash: 0.1})},
+  blueprint: {name: 'Схема',   hue: 205, fam: 'o', layers: {video: 0.5, links: 1, nodes: 1}, fx: {},
+    set: (pk, rg) => ({nDens: rg(90, 130), nThr: 0.2, nShape: pk(['circle', 'cross', 'diamond']), nLabels: true, lMode: pk(['delaunay', 'hybrid', 'proximity']), lDist: 18, lOp: 0.5, geoColor: 'cyan', tCount: 7, tLabel: 'xyz', aFlash: 0.15, orbit: 0})},
+  print:     {name: 'Печать',  hue: 48,  fam: 'r', layers: {dither: 1}, fx: {},
+    set: (pk) => ({dAlgo: pk(['atkinson', 'fs', 'bayer', 'noise']), dPitch: pk([4, 5, 6]), dPal: pk(['cobalt', 'electric', 'forest', 'red', 'mono', 'cyan']), dCon: 1.35, dInv: pk([false, false, true]), frameOn: false, aFlash: 0, orbit: 0})},
+  plotter:   {name: 'Плоттер', hue: 150, fam: 'r', layers: {video: 0.3, plot: 1}, fx: {},
+    set: (pk) => ({pLines: pk([110, 140, 170]), pCon: 1.8, pCol: pk(['#ffffff', '#3fe3f2', '#ff4d3a']), pW: 1.1, pAnim: 0.7, pVig: pk([0, 0.4]), frameOn: false, aFlash: 0})},
+  cloud:     {name: 'Облако',  hue: 190, fam: 'c', layers: {video: 0.3, cloud: 1}, fx: {fxTurb: 0.25, fxPulse: 0.2},
+    set: (pk) => ({colorMode: pk([4, 5, 0]), depthY: 0.45, depth: 1.3, orbit: 0.5, size: 1, float: 0.35, aFlash: 0.2})},
+  glyph:     {name: 'Глифы',   hue: 120, fam: 'r', layers: {video: 0.3, glyph: 1}, fx: {},
+    set: (pk) => ({gCols: pk([90, 120, 160]), geoColor: pk(['mono', 'solar', 'cyan']), gOp: 0.9, frameOn: false, aFlash: 0, orbit: 0})},
+  curtain:   {name: 'Свет',    hue: 285, fam: 'o', layers: {video: 1, curtain: 0.65}, fx: {},
+    set: (pk) => ({cDir: pk(['down', 'up', 'both']), cDens: 220, cLen: pk([30, 45]), cOp: 0.6, geoColor: pk(['source', 'auto']), geoBlend: 'screen', aFlash: 0.2, orbit: 0})},
+  drop:      {name: 'Дроп',    hue: 345, fam: 'o', layers: {video: 0.8, cloud: 0.5, nodes: 0.45, glitch: 0.8}, fx: {fxPulse: 0.4, fxWave: 0.3},
+    set: () => ({colorMode: 5, nDens: 70, nShape: 'bracket', geoColor: 'auto', xAmt: 0.7, aFlash: 0.5, aScat: 0.22, orbit: 0.5, depthY: 0.3, tCount: 5, tLabel: 'num'})},
 };
-const WEIGHTS = [{aura: 3, net: 2, plotter: 1.5, glyph: 0.6}, {net: 3, print: 2, plotter: 2, glyph: 1, aura: 1}, {drop: 4, print: 2, net: 1.5, plotter: 1.5, glyph: 1}];
+const WEIGHTS = [
+  {film: 3, cloud: 2.5, blueprint: 2, curtain: 1.5, glyph: 0.7},
+  {film: 2, blueprint: 2.5, curtain: 2, plotter: 2, cloud: 1.5, glyph: 1.2, print: 1},
+  {drop: 3.5, print: 2.5, glyph: 1.5, plotter: 1.5, curtain: 1.5, cloud: 1.5},
+];
 function makeLook(key, level, R){
-  const T = LOOKS[key], pick = a => a[Math.floor(R() * a.length)], boost = AU ? 0.75 + 0.35 * level : 1, fx = {};
-  Object.entries(T.fx).forEach(([id, v]) => fx[id] = clamp(v * boost, 0.1, 1));
-  return {key, name: T.name, hue: T.hue, level, layers: {...T.layers}, fx, kick: T.kick ?? 0.12,
-    p: {nShape: pick(['bracket', 'circle', 'diamond', 'cross', 'mixed']), lMode: pick(['delaunay', 'hybrid', 'proximity', 'chain', 'radial']), dAlgo: pick(['atkinson', 'fs', 'bayer', 'noise']),
-        dPitch: level === 2 ? pick([3, 4, 5]) : pick([5, 6, 8]), pCol: pick(['#ffffff', '#3fe3f2', '#ff4d3a']), cDir: pick(['down', 'up', 'both']), pLines: pick([60, 90, 130]), gCols: pick([70, 100, 140]), colorMode: pick(T.color)}};
+  const T = LOOKS[key], pk = a => a[Math.floor(R() * a.length)], rg = (a, b) => Math.round(a + R() * (b - a)), fx = {};
+  Object.entries(T.fx).forEach(([id, v]) => fx[id] = clamp(v * (AU ? 0.8 + 0.25 * level : 1), 0.1, 1));
+  return {key, name: T.name, hue: T.hue, level, layers: {...T.layers}, fx, p: T.set(pk, rg)};
 }
 function buildPlan(){
   if (!hasVideo) return;
   const R = rng(seed * 7919 + 13), D = getDur(), st = getStart(); let secs = [];
   if (AU) AU.sections.forEach(g => { const a = Math.max(g.t0, st) - st, b = Math.min(g.t1, st + D) - st; if (b - a > 0.3) secs.push({t0: a, t1: b, level: g.level}); });
-  if (!secs.length) { const n = Math.max(1, Math.round(D / 6)), pat = [0, 1, 2, 1]; for (let i = 0; i < n; i++) secs.push({t0: i * D / n, t1: (i + 1) * D / n, level: pat[i % 4]}); }
+  if (!secs.length) secs = [{t0: 0, t1: D, level: 1}];
   secs[0].t0 = 0; secs[secs.length - 1].t1 = D; for (let i = 1; i < secs.length; i++) secs[i].t0 = secs[i - 1].t1;
-  const maxLen = AU ? Math.max(8, AU.beatLen * 32) : 8, split = [];
-  secs.forEach(g => { const n = Math.max(1, Math.round((g.t1 - g.t0) / maxLen)); for (let i = 0; i < n; i++) split.push({t0: g.t0 + (g.t1 - g.t0) * i / n, t1: g.t0 + (g.t1 - g.t0) * (i + 1) / n, level: g.level}); });
-  let prev = '';
+  // shots of about 8 beats (about 4 s), cut on the beat grid so every change lands on the music
+  const shot = AU ? clamp(AU.beatLen * 8, 3, 6) : 4, split = [];
+  secs.forEach(g => { const len = g.t1 - g.t0, n = Math.max(1, Math.round(len / shot)); for (let i = 0; i < n; i++) split.push({t0: g.t0 + len * i / n, t1: g.t0 + len * (i + 1) / n, level: g.level}); });
+  const hist = [];
   planSecs = split.map(g => {
     const w = {...WEIGHTS[g.level]}, V = VT || {lum: 0.4, edge: 0.1, sat: 0.2, motion: 0.05};
-    if (V.lum > 0.55) { w.print = (w.print || 0) * 2; w.plotter = (w.plotter || 0) * 1.6; w.aura = (w.aura || 0) * 0.6; }
-    if (V.lum < 0.25) w.aura = (w.aura || 0) * 1.3;
-    if (V.edge > 0.12) w.net = (w.net || 0) * 1.5;
-    if (V.sat > 0.3) { w.aura = (w.aura || 0) * 1.4; w.drop = (w.drop || 0) * 1.2; }
-    if (V.motion > 0.08) w.drop = (w.drop || 0) * 1.25;
-    if (w[prev]) w[prev] *= 0.15;
+    if (V.lum > 0.55) { w.print = (w.print || 0) * 1.8; w.plotter = (w.plotter || 0) * 1.6; w.cloud = (w.cloud || 0) * 0.5; w.drop = (w.drop || 0) * 0.7; }
+    if (V.lum < 0.25) { w.cloud = (w.cloud || 0) * 1.4; w.curtain = (w.curtain || 0) * 1.4; w.print = (w.print || 0) * 0.6; }
+    if (V.edge > 0.12) { w.blueprint = (w.blueprint || 0) * 1.5; w.film = (w.film || 0) * 1.2; }
+    if (V.sat > 0.3) { w.curtain = (w.curtain || 0) * 1.4; w.cloud = (w.cloud || 0) * 1.2; }
+    // maximise contrast between neighbours: never the same look within three shots, and avoid the same family back to back
+    Object.keys(w).forEach(k => { if (hist.slice(-3).includes(k)) w[k] *= 0.04; else { if (hist.length && LOOKS[hist[hist.length - 1]].fam === LOOKS[k].fam) w[k] *= 0.35; if (hist.length > 1 && LOOKS[hist[hist.length - 2]].fam === LOOKS[k].fam) w[k] *= 0.75; } });
     const tot = Object.values(w).reduce((a, b) => a + b, 0); let r = R() * tot, key = Object.keys(w)[0];
     for (const [k2, v] of Object.entries(w)) { r -= v; if (r <= 0) { key = k2; break; } }
-    prev = key; return {...g, look: makeLook(key, g.level, R)};
+    hist.push(key); return {...g, look: makeLook(key, g.level, R)};
   });
   curSec = -1; tlDirty = true; renderSecList();
 }
 function setv(id, val){ const el = $(id); if (!el) return; if (el.type === 'checkbox') { el.checked = !!val; el.dispatchEvent(new Event('change')); } else { el.value = val; el.dispatchEvent(new Event('input')); el.dispatchEvent(new Event('change')); } }
 function setFx(id, on, val){ fxOn[id] = on; if (val !== undefined) { $(id).value = val; $(id).parentElement.querySelector('output').textContent = f2(+val); } applyFx(id); }
 function applyLook(sec){
-  const L = sec.look, P = L.p;
+  const L = sec.look;
+  Object.entries(DEFAULTS).forEach(([k, v]) => setv(k, v)); Object.entries(L.p).forEach(([k, v]) => setv(k, v));
   Object.keys(FX).forEach(id => setFx(id, id in L.fx, L.fx[id]));
-  setv('nShape', P.nShape); setv('lMode', P.lMode); setv('dAlgo', P.dAlgo); setv('dPitch', P.dPitch); setv('pCol', P.pCol); setv('cDir', P.cDir); setv('pLines', P.pLines); setv('gCols', P.gCols);
-  setv('colorMode', P.colorMode); setv('geoColor', 'auto'); setv('dPal', 'auto'); setv('depthY', 0.35);
-  setv('aScat', L.kick); setv('aFlash', [0.3, 0.6, 1][L.level]); setv('aBeat', [0.8, 1, 1.2][L.level]); setv('orbit', [0.25, 0.4, 0.6][L.level]);
 }
 function applyAuto(t){
   if (!autoOn || !planSecs.length) return;
@@ -909,14 +925,14 @@ function renderSecList(){
 function markSec(){ document.querySelectorAll('#secList .sec').forEach((r, i) => r.classList.toggle('now', i === curSec)); }
 
 // ---------------------------------------------------------------- timeline: waveform, beat grid, hits, sections, one lane per module
-const tl = $('tl'), tlx = tl.getContext('2d'), TL_GUT = 74, LANES = [['cloud', 'ОБЛАКО', 190], ['nodes', 'УЗЛЫ', 215], ['links', 'СВЯЗИ', 230], ['dither', 'ПЕЧАТЬ', 40], ['curtain', 'ЗАВЕСА', 280], ['plot', 'ПЛОТТЕР', 150], ['glyph', 'ГЛИФЫ', 120], ['glitch', 'ГЛИТЧ', 345]];
+const tl = $('tl'), tlx = tl.getContext('2d'), TL_GUT = 74, LANES = [['video', 'ВИДЕО', 55], ['cloud', 'ОБЛАКО', 190], ['nodes', 'УЗЛЫ', 215], ['links', 'СВЯЗИ', 230], ['dither', 'ПЕЧАТЬ', 40], ['curtain', 'ЗАВЕСА', 280], ['plot', 'ПЛОТТЕР', 150], ['glyph', 'ГЛИФЫ', 120], ['glitch', 'ГЛИТЧ', 345]];
 let tlStatic = document.createElement('canvas'), tlW = 0, tlH = 0;
 function sizeTimeline(){
   const r = tl.getBoundingClientRect(), dpr = Math.min(2, devicePixelRatio || 1); tlW = Math.max(100, Math.round(r.width * dpr)); tlH = Math.max(60, Math.round(r.height * dpr));
   tl.width = tlStatic.width = tlW; tl.height = tlStatic.height = tlH; tlDirty = true;
 }
 function drawTlStatic(){
-  const c = tlStatic.getContext('2d'), w = tlW, h = tlH, k = h / 215, g = TL_GUT * k, D = getDur(), st = getStart(), X = t => g + t / D * (w - g);
+  const c = tlStatic.getContext('2d'), w = tlW, h = tlH, k = h / 230, g = TL_GUT * k, D = getDur(), st = getStart(), X = t => g + t / D * (w - g);
   c.setTransform(1, 0, 0, 1, 0, 0); c.fillStyle = '#080c10'; c.fillRect(0, 0, w, h); c.font = `${Math.round(8.5 * k)}px ui-monospace, Menlo, monospace`; c.textBaseline = 'middle';
   // ruler
   const step = D > 120 ? 30 : D > 40 ? 10 : D > 12 ? 2 : 1; c.fillStyle = '#6e8790'; c.strokeStyle = 'rgba(160,220,235,.14)'; c.lineWidth = 1;
@@ -951,12 +967,12 @@ function drawTlStatic(){
 function drawTimeline(t){
   if (!tlW) sizeTimeline(); if (tlDirty) drawTlStatic();
   tlx.setTransform(1, 0, 0, 1, 0, 0); tlx.drawImage(tlStatic, 0, 0);
-  const k = tlH / 215, g = TL_GUT * k, x = g + clamp(t / getDur(), 0, 1) * (tlW - g);
+  const k = tlH / 230, g = TL_GUT * k, x = g + clamp(t / getDur(), 0, 1) * (tlW - g);
   tlx.strokeStyle = '#ff4d3a'; tlx.lineWidth = Math.max(1, 1.5 * k); tlx.beginPath(); tlx.moveTo(x, 0); tlx.lineTo(x, tlH); tlx.stroke();
   tlx.fillStyle = '#ff4d3a'; tlx.beginPath(); tlx.moveTo(x - 4 * k, 0); tlx.lineTo(x + 4 * k, 0); tlx.lineTo(x, 7 * k); tlx.fill();
 }
 let tlDrag = false;
-const tlSeek = e => { if (!hasVideo) return; const r = tl.getBoundingClientRect(), gf = (TL_GUT * (tlH / 215)) / tlW, fx = (e.clientX - r.left) / r.width; video.currentTime = getStart() + clamp((fx - gf) / (1 - gf), 0, 0.999) * getDur(); };
+const tlSeek = e => { if (!hasVideo) return; const r = tl.getBoundingClientRect(), gf = (TL_GUT * (tlH / 230)) / tlW, fx = (e.clientX - r.left) / r.width; video.currentTime = getStart() + clamp((fx - gf) / (1 - gf), 0, 0.999) * getDur(); };
 tl.addEventListener('pointerdown', e => { tlDrag = true; tl.setPointerCapture(e.pointerId); tlSeek(e); }); tl.addEventListener('pointermove', e => { if (tlDrag) tlSeek(e); }); tl.addEventListener('pointerup', () => tlDrag = false);
 addEventListener('resize', sizeTimeline);
 
