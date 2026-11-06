@@ -1,7 +1,10 @@
 (() => {
 'use strict';
 const $ = id => document.getElementById(id);
+const setOut = (id, v) => { $(id).parentElement.querySelector('output').textContent = v; };
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+let AM = {};   // per-frame audio modulation of layer parameters
+let tlDirty = true;
 const MAX_DUR = 300, MAX_SIDE = 2560, TAU = Math.PI * 2, DEG = Math.PI / 180;
 const stage = $('stage'), glc = $('gl'), view = $('view'), vctx = view.getContext('2d'), hud = $('hud'), hctx = hud.getContext('2d');
 
@@ -23,7 +26,7 @@ const U = {
   uTime: {value: 0}, uScatter: {value: 0}, uDepth: {value: 1}, uSize: {value: 1.1}, uWidth: {value: W / 2}, uHalfH: {value: 150},
   uPR: {value: 1}, uMode: {value: 1}, uWind: {value: 1}, uFloat: {value: 0.3}, uFloatN: {value: 1}, uLoop: {value: 1},
   uPulse: {value: 0}, uPulseN: {value: 3}, uWave: {value: 0}, uWaveT: {value: 0}, uWaveL: {value: 1.5}, uWaveN: {value: 1},
-  uTurb: {value: 0}, uTurbN: {value: 1}, uMag: {value: 0}, uMagPol: {value: 1}, uMagR: {value: 60}, uMagPos: {value: new THREE.Vector3()},
+  uTurb: {value: 0}, uTurbN: {value: 1}, uDepthY: {value: 0}, uP0: {value: new THREE.Vector3(0.2, 0.9, 1)}, uP1: {value: new THREE.Vector3(1, 0.3, 0.6)}, uMag: {value: 0}, uMagPol: {value: 1}, uMagR: {value: 60}, uMagPos: {value: new THREE.Vector3()},
   uScan: {value: 0}, uScanW: {value: 1}, uScanN: {value: 1},
 };
 
@@ -31,7 +34,7 @@ const vs = `
 attribute vec4 seed;
 uniform sampler2D uTex; uniform vec2 uCell; uniform vec3 uBg; uniform float uThr, uBgOn, uInvert;
 uniform float uTime,uScatter,uDepth,uSize,uWidth,uHalfH,uPR,uWind,uFloat,uFloatN,uLoop,uPulse,uPulseN,uWave,uWaveL,uWaveN,uTurb,uTurbN,uMag,uMagPol,uMagR,uScan,uScanW,uScanN;
-uniform int uMode,uWaveT; uniform vec3 uMagPos;
+uniform int uMode,uWaveT; uniform vec3 uMagPos, uP0, uP1; uniform float uDepthY;
 varying vec3 vColor; varying float vAlpha;
 void main(){
   vec2 d = uCell*0.25;
@@ -40,7 +43,9 @@ void main(){
   bool kill = uBgOn > 0.5 ? distance(col, uBg) < uThr : lum < 0.03;
   if (kill) { gl_Position = vec4(2.0,2.0,2.0,1.0); gl_PointSize = 0.0; vColor = vec3(0.0); vAlpha = 0.0; return; }
   vec3 p = position;
-  p.z = ((uInvert > 0.5 ? 1.0-lum : lum) - 0.5)*90.0*uDepth;
+  float zl = uInvert > 0.5 ? 1.0-lum : lum;
+  p.z = (zl - 0.5)*90.0*uDepth + (0.5 - uv.y)*uDepthY*60.0;
+  float dep = clamp(zl + (0.5 - uv.y)*uDepthY*0.6, 0.0, 1.0);
   float ph = uTime*uLoop, k1 = 1.0 + floor(seed.y*2.0), pf = ph*uFloatN;
   p += vec3(sin(pf*k1 + seed.w*6.2831), cos(pf*(3.0-k1) + seed.z*6.2831), sin(pf + seed.x*6.2831)) * uFloat*uWidth*0.035*(0.4+seed.x);
   p.z += sin(pf + p.x*0.02 + p.y*0.015) * uFloat*uWidth*0.08;
@@ -70,7 +75,9 @@ void main(){
   if (uMode==0) vColor = col;
   else if (uMode==1) vColor = mix(vec3(0.16,0.2,0.32), vec3(1.0), pow(lum,0.8));
   else if (uMode==2) vColor = mix(vec3(0.02,0.18,0.3), vec3(0.6,1.0,1.0), lum);
-  else vColor = mix(vec3(0.35,0.02,0.0), vec3(1.0,0.75,0.6), lum);
+  else if (uMode==3) vColor = mix(vec3(0.35,0.02,0.0), vec3(1.0,0.75,0.6), lum);
+  else if (uMode==4) vColor = dep < 0.5 ? mix(vec3(0.03,0.08,0.45), vec3(0.75,0.15,0.65), dep*2.0) : mix(vec3(0.75,0.15,0.65), vec3(1.0,0.85,0.35), (dep-0.5)*2.0);
+  else vColor = lum < 0.5 ? mix(uP0*0.12, uP0, lum*2.0) : mix(uP0, mix(uP1, vec3(1.0), 0.45), (lum-0.5)*2.0);
   vAlpha = (1.0 - f*0.5)*(0.55 + 0.45*lum);
   vColor = mix(vColor, vec3(0.55,1.0,1.0), clamp(sb,0.0,1.0)*0.8);
   vAlpha *= 1.0 + sb*1.5;
@@ -142,6 +149,7 @@ let tracked = [], links = [], shuffleSeed = 1;
 const isValid = i => { if (!pix) return false; const k = i * 4;
   return $('bgRemove').checked ? Math.hypot(pix[k] / 255 - bgRGB[0], pix[k + 1] / 255 - bgRGB[1], pix[k + 2] / 255 - bgRGB[2]) >= U.uThr.value : lumA[i] >= 0.03; };
 const zOf = i => ((U.uInvert.value > 0.5 ? 1 - lumA[i] : lumA[i]) - 0.5) * 90;
+const zFull = i => zOf(i) * U.uDepth.value + (((i / gw | 0) + 0.5) / gh - 0.5) * U.uDepthY.value * 60;
 function pickTracked(){
   tracked = []; links = [];
   const crit = $('tPick').value, n = +$('tCount').value;
@@ -177,7 +185,7 @@ function pickTracked(){
 const sm = v => v * v * (3 - 2 * v);
 function displaced(i, out){
   const hw = U.uWidth.value, t = U.uTime.value, ph = t * U.uLoop.value;
-  let px = homeX[i], py = homeY[i], pz = zOf(i) * U.uDepth.value;
+  let px = homeX[i], py = homeY[i], pz = zFull(i);
   const s0 = seeds[i * 4], s1 = seeds[i * 4 + 1], s2 = seeds[i * 4 + 2], s3 = seeds[i * 4 + 3];
   const k1 = 1 + Math.floor(s1 * 2), fa = U.uFloat.value * hw * 0.035 * (0.4 + s0), pf = ph * U.uFloatN.value;
   px += Math.sin(pf * k1 + s3 * TAU) * fa; py += Math.cos(pf * (3 - k1) + s2 * TAU) * fa; pz += Math.sin(pf + s0 * TAU) * fa;
@@ -213,6 +221,7 @@ bindRange('bgThr', f2, applyBgUniforms); $('bgThr').addEventListener('change', p
 $('bgRemove').onchange = () => { applyBgUniforms(); pickTracked(); };
 bindRange('depth', f2, v => U.uDepth.value = v);
 bindRange('size', f2, v => U.uSize.value = v);
+bindRange('depthY', f2, v => U.uDepthY.value = v);
 bindRange('scatter', f2); bindRange('wind', f2, v => U.uWind.value = v);
 bindRange('orbit', f2); bindRange('orbitN', String);
 bindRange('float', f2, v => U.uFloat.value = v);
@@ -220,7 +229,8 @@ const FX = {fxPulse: 'uPulse', fxWave: 'uWave', fxMag: 'uMag', fxTurb: 'uTurb', 
 function applyFx(id){
   const on = !!fxOn[id], b = document.querySelector(`.sw[data-fx="${id}"]`);
   U[FX[id]].value = on ? +$(id).value : 0;
-  b.setAttribute('aria-pressed', on); b.textContent = on ? 'вкл' : 'выкл'; b.closest('summary').classList.toggle('act', on);
+  if (b) { b.setAttribute('aria-pressed', on); b.textContent = on ? 'вкл' : 'выкл'; }
+  tlDirty = true;
 }
 document.querySelectorAll('.sw[data-fx]').forEach(b => b.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); const id = b.dataset.fx; fxOn[id] = !fxOn[id]; applyFx(id); }));
 Object.keys(FX).forEach(id => { fxOn[id] = 'init'; bindRange(id, f2, () => { if (fxOn[id] === 'init') return; fxOn[id] = true; applyFx(id); }); fxOn[id] = false; applyFx(id); });
@@ -334,17 +344,23 @@ addEventListener('resize', () => { if (!exporting) layoutStage(); });
 
 
 // ---------------------------------------------------------------- graphic layers (contours, nodes, links, dither, curtain, plotter lines)
-const lyOn = {nodes: false, links: false, dither: false, curtain: false, plot: false};
-document.querySelectorAll('.sw[data-ly]').forEach(b => b.addEventListener('click', e => {
-  e.preventDefault(); e.stopPropagation(); const k = b.dataset.ly; lyOn[k] = !lyOn[k];
-  b.setAttribute('aria-pressed', lyOn[k]); b.textContent = lyOn[k] ? 'вкл' : 'выкл'; b.closest('summary').classList.toggle('act', lyOn[k]);
-}));
-['underlay', 'nDens', 'nThr', 'nMin', 'nMax', 'nStroke', 'lDist', 'lConf', 'lOp', 'lW', 'dPitch', 'dThr', 'dCon', 'dOp', 'cDens', 'cLen', 'cOp', 'pLines', 'pCon', 'pDef', 'pW', 'pAnim', 'pVig']
+const lyOn = {nodes: false, links: false, dither: false, curtain: false, plot: false, glyph: false, glitch: false};
+const LA = {cloud: 1, nodes: 0, links: 0, dither: 0, curtain: 0, plot: 0, glyph: 0, glitch: 0};
+let autoOn = false;
+const ly = k => autoOn ? (LA[k] || 0) : (k === 'cloud' ? ($('cloudOn').checked ? 1 : 0) : (lyOn[k] ? 1 : 0));
+function toggleLayer(k){ if (autoOn) setAuto(false); if (k === 'cloud') $('cloudOn').checked = !$('cloudOn').checked; else lyOn[k] = !lyOn[k]; syncSwitches(); }
+document.querySelectorAll('.sw[data-ly]').forEach(b => b.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); toggleLayer(b.dataset.ly); }));
+function syncSwitches(){
+  document.querySelectorAll('.sw[data-ly]').forEach(b => { const on = ly(b.dataset.ly) > 0.5; b.setAttribute('aria-pressed', on); b.textContent = on ? 'вкл' : 'выкл'; });
+  tlDirty = true;
+}
+['underlay', 'gCols', 'gOp', 'xAmt', 'depthY', 'aGain', 'aBass', 'aMid', 'aHigh', 'aBeat', 'aScat', 'aFlash', 'nDens', 'nThr', 'nMin', 'nMax', 'nStroke', 'lDist', 'lConf', 'lOp', 'lW', 'dPitch', 'dThr', 'dCon', 'dOp', 'cDens', 'cLen', 'cOp', 'pLines', 'pCon', 'pDef', 'pW', 'pAnim', 'pVig']
   .forEach(id => bindRange(id, v => Number.isInteger(+$(id).step) && +$(id).step >= 1 ? String(v) : f2(v)));
-const num = id => +$(id).value;
+const num = id => { const v = +$(id).value, f = AM[id]; return f ? f(v) : v; };
 const PALETTES = {
-  source: null, cyan: [[63, 227, 242], [20, 120, 140]], solar: [[255, 190, 90], [255, 110, 40]], mono: [[240, 240, 240], [140, 140, 140]], violet: [[190, 150, 255], [110, 70, 220]],
+  source: null, auto: [[63, 227, 242], [255, 77, 140]], cyan: [[63, 227, 242], [20, 120, 140]], solar: [[255, 190, 90], [255, 110, 40]], mono: [[240, 240, 240], [140, 140, 140]], violet: [[190, 150, 255], [110, 70, 220]],
 };
+const autoInks = () => { const a = PALETTES.auto[0], b = PALETTES.auto[1], h = c => '#' + c.map(v => Math.round(clamp(v, 0, 255)).toString(16).padStart(2, '0')).join(''); return [h(a.map(v => v * 0.45)), h(b.map(v => 215 + v * 0.14))]; };
 const INKS = {cobalt: ['#1c36ff', '#ece8dc'], electric: ['#0a1cff', '#d8ff3a'], cyan: ['#0b8fa8', '#f4fbfb'], forest: ['#0f4a2c', '#eef0dc'], red: ['#e0261d', '#f3ece2'], mono: ['#0a0a0a', '#f2f2f2']};
 const hex2rgb = h => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
 
@@ -409,7 +425,7 @@ function drawShape(ctx, kind, x, y, r, ang){
     [[-1, -1], [1, 1]].forEach(([sx, sy]) => { ctx.moveTo(...P(sx * r, sy * (r - c))); ctx.lineTo(...P(sx * r, sy * r)); ctx.lineTo(...P(sx * (r - c), sy * r)); }); }
   ctx.stroke();
 }
-function dither(ctx, vr, w, h){
+function dither(ctx, vr, w, h, alpha){
   const k = Math.min(w, h) / 1080, pitch = Math.max(1, num('dPitch') * k);
   let bw = Math.max(8, Math.round(vr.w / pitch)), bh = Math.max(8, Math.round(vr.h / pitch));
   const cap = 700000; if (bw * bh > cap) { const f = Math.sqrt(cap / (bw * bh)); bw = Math.round(bw * f); bh = Math.round(bh * f); }
@@ -425,10 +441,10 @@ function dither(ctx, vr, w, h){
   else for (let y = 0; y < bh; y++) for (let xx = 0; xx < bw; xx++) { const i = y * bw + xx;
     const t = algo === 'bayer' ? (B[(y & 3) * 4 + (xx & 3)] + 0.5) / 16 : (52.9829189 * ((0.06711056 * xx + 0.00583715 * y) % 1)) % 1;
     bits[i] = L[i] + (thr - 0.5) > t ? 1 : 0; }
-  const [inkH, paperH] = INKS[$('dPal').value], ink = hex2rgb(inkH), paper = hex2rgb(paperH), inv = $('dInv').checked;
+  const [inkH, paperH] = $('dPal').value === 'auto' ? autoInks() : INKS[$('dPal').value], ink = hex2rgb(inkH), paper = hex2rgb(paperH), inv = $('dInv').checked;
   for (let i = 0; i < bw * bh; i++) { const col = (bits[i] ^ (inv ? 1 : 0)) ? paper : ink; d[i * 4] = col[0]; d[i * 4 + 1] = col[1]; d[i * 4 + 2] = col[2]; d[i * 4 + 3] = 255; }
   x.putImageData(img, 0, 0);
-  ctx.save(); ctx.imageSmoothingEnabled = false; ctx.globalAlpha = num('dOp'); ctx.globalCompositeOperation = $('dBlend').value;
+  ctx.save(); ctx.imageSmoothingEnabled = false; ctx.globalAlpha = num('dOp') * alpha; ctx.globalCompositeOperation = $('dBlend').value;
   ctx.drawImage(c, vr.x, vr.y, vr.w, vr.h); ctx.restore();
 }
 function curtain(ctx, vr, k){
@@ -461,25 +477,52 @@ function plotter(ctx, vr, k, t){
   }
   ctx.stroke();
 }
+function glyphs(ctx, vr, k, a){
+  const cols = Math.round(num('gCols')), cw = vr.w / cols, rows = Math.max(4, Math.round(vr.h / (cw * 1.8))), ch = vr.h / rows, ramp = [' ', '.', ':', '-', '=', '+', '*', '#', '%', '@'], bgOn = $('bgRemove').checked;
+  ctx.font = `${Math.max(6, Math.round(ch * 1.05))}px ui-monospace, Menlo, Consolas, monospace`; ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+  const kick = AV.on ? AV.K : 0;
+  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+    const gx = Math.min(gw - 1, Math.floor((c + 0.5) / cols * gw)), gy = Math.min(gh - 1, Math.floor((r + 0.5) / rows * gh)), i = gy * gw + gx, l = lumA[i];
+    if (l < 0.1 || (bgOn && !isValid(i))) continue;
+    const idx = Math.min(9, Math.floor(clamp(l * (1.05 + kick * 0.4), 0, 0.999) * 10)), [R, G, B] = geoRGB(i, 0.3);
+    ctx.fillStyle = `rgba(${R},${G},${B},${(a * num('gOp') * (0.35 + 0.65 * l)).toFixed(3)})`;
+    ctx.fillText(ramp[idx], vr.x + (c + 0.5) * cw, vr.y + (r + 0.5) * ch);
+  }
+  ctx.textAlign = 'start';
+}
+function glitch(ctx, w, h, a){
+  const strength = num('xAmt') * a * (AV.on ? 0.1 + AV.K * 1.4 : 0.4 + 0.4 * Math.sin(U.uTime.value * 6));
+  if (strength < 0.06) return;
+  if (!glitch.c) { glitch.c = document.createElement('canvas'); glitch.x = glitch.c.getContext('2d'); }
+  const c = glitch.c; if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
+  glitch.x.clearRect(0, 0, w, h); glitch.x.drawImage(ctx.canvas, 0, 0, w, h);
+  const R = rng(AV.on ? AV.beatIdx * 13 + Math.floor(AV.beatPh * 4) : Math.floor(U.uTime.value * 8)), n = 2 + Math.floor(strength * 9);
+  ctx.save(); ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+  for (let i = 0; i < n; i++) { const y = R() * h, hh = (0.01 + R() * 0.07) * h, dx = (R() - 0.5) * w * 0.14 * Math.min(1.5, strength); ctx.drawImage(c, 0, y, w, hh, dx, y, w, hh); }
+  ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = Math.min(0.4, 0.22 * strength); ctx.drawImage(c, strength * w * 0.007, 0); ctx.drawImage(c, -strength * w * 0.007, 0);
+  ctx.restore();
+}
 function drawLayers(ctx, w, h){
-  const vr = videoRect(w, h), k = Math.min(w, h) / 1080, t = U.uTime.value;
+  const vr = videoRect(w, h), k = Math.min(w, h) / 1080, t = U.uTime.value, on = n => ly(n) > 0.01;
   ctx.save();
   if (num('underlay') > 0) { ctx.globalAlpha = num('underlay'); ctx.drawImage(video, vr.x, vr.y, vr.w, vr.h); ctx.globalAlpha = 1; }
-  if (lyOn.dither) dither(ctx, vr, w, h);
-  const geo = lyOn.nodes || lyOn.links || lyOn.curtain;
-  if (geo || lyOn.plot) { ctx.globalCompositeOperation = $('geoBlend').value; }
+  if (on('dither')) dither(ctx, vr, w, h, ly('dither'));
+  const geo = on('nodes') || on('links') || on('curtain');
+  if (geo || on('plot') || on('glyph')) ctx.globalCompositeOperation = $('geoBlend').value;
   if (geo) analyseEdges();
-  if (lyOn.curtain) curtain(ctx, vr, k);
-  if (lyOn.plot) plotter(ctx, vr, k, t);
-  if (lyOn.nodes || lyOn.links) {
+  if (on('curtain')) { ctx.globalAlpha = ly('curtain'); curtain(ctx, vr, k); ctx.globalAlpha = 1; }
+  if (on('plot')) { ctx.globalAlpha = ly('plot'); plotter(ctx, vr, k, t); ctx.globalAlpha = 1; }
+  if (on('glyph')) glyphs(ctx, vr, k, ly('glyph'));
+  if (on('nodes') || on('links')) {
     const nodes = pickNodes(), at = n => [vr.x + (n.x + 0.5) / gw * vr.w, vr.y + (n.y + 0.5) / gh * vr.h];
-    if (lyOn.links && nodes.length > 1) {
+    if (on('links') && nodes.length > 1) {
+      ctx.globalAlpha = ly('links');
       const maxD = num('lDist') / 100 * vr.w, conf = num('lConf'), mode = $('lMode').value, S = new Map();
       const add = (a, b) => { const key = Math.min(a, b) * 65536 + Math.max(a, b); if (!S.has(key)) S.set(key, [a, b]); };
       const P = nodes.map(at), dist = (a, b) => Math.hypot(P[a][0] - P[b][0], P[a][1] - P[b][1]);
       if (mode === 'delaunay' || mode === 'hybrid') delaunayEdges(P).forEach(([a, b]) => add(a, b));
       if (mode === 'proximity') nodes.forEach((_, a) => nodes.map((__, b) => [b, dist(a, b)]).filter(([b, d]) => b !== a && d < maxD).sort((x, y) => x[1] - y[1]).slice(0, 3).forEach(([b]) => add(a, b)));
-      if (mode === 'chain') { const used = new Set([0]); let cur = 0; for (let s = 1; s < nodes.length; s++) { let bi = -1, bd = 1e9; for (let b = 0; b < nodes.length; b++) if (!used.has(b)) { const d = dist(cur, b); if (d < bd) { bd = d; bi = b; } } if (bi < 0) break; if (bd < maxD * 1.5) add(cur, bi); used.add(bi); cur = bi; } }
+      if (mode === 'chain') { const used = new Set([0]); let cur = 0; for (let s2 = 1; s2 < nodes.length; s2++) { let bi = -1, bd = 1e9; for (let b = 0; b < nodes.length; b++) if (!used.has(b)) { const d = dist(cur, b); if (d < bd) { bd = d; bi = b; } } if (bi < 0) break; if (bd < maxD * 1.5) add(cur, bi); used.add(bi); cur = bi; } }
       if (mode === 'radial' || mode === 'hybrid') nodes.forEach((_, b) => { if (b && dist(0, b) < maxD * 1.6) add(0, b); });
       ctx.lineWidth = Math.max(0.4, num('lW') * k);
       for (const [a, b] of S.values()) {
@@ -488,8 +531,10 @@ function drawLayers(ctx, w, h){
         const [r, g, bl] = geoRGB(nodes[a].i, 0.35); ctx.strokeStyle = `rgba(${r},${g},${bl},${(num('lOp') * (1 - d / (maxD * 1.7)) * Math.min(1, 0.4 + str)).toFixed(3)})`;
         ctx.beginPath(); ctx.moveTo(...P[a]); ctx.lineTo(...P[b]); ctx.stroke();
       }
+      ctx.globalAlpha = 1;
     }
-    if (lyOn.nodes) {
+    if (on('nodes')) {
+      ctx.globalAlpha = ly('nodes');
       const mn = num('nMin') * k, mxs = num('nMax') * k, sh = $('nShape').value, kinds = ['bracket', 'circle', 'square', 'diamond', 'cross'];
       ctx.lineWidth = Math.max(0.5, num('nStroke') * k); ctx.font = `${Math.round(9 * k)}px ui-monospace, Menlo, monospace`; ctx.textBaseline = 'middle';
       nodes.forEach((n, idx) => {
@@ -499,16 +544,112 @@ function drawLayers(ctx, w, h){
         if (tier === 1) { ctx.beginPath(); ctx.arc(x, y, Math.max(1, 1.2 * k), 0, TAU); ctx.fill(); }
         if ($('nLabels').checked && tier > 0) ctx.fillText(`${String(idx + 1).padStart(3, '0')} ${(n.x / gw).toFixed(2)} ${(n.y / gh).toFixed(2)}`, x + size / 2 + 4 * k, y - size / 2);
       });
+      ctx.globalAlpha = 1;
     }
   }
   ctx.restore();
+  if (on('glitch')) glitch(ctx, w, h, ly('glitch'));
 }
 function composeFrame(ctx, w, h){
   ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over'; ctx.fillStyle = '#000'; ctx.fillRect(0, 0, w, h);
-  if ($('cloudOn').checked) ctx.drawImage(glc, 0, 0, w, h);
+  { const ca = ly('cloud'); if (ca > 0.01) { ctx.globalAlpha = ca; ctx.drawImage(glc, 0, 0, w, h); ctx.globalAlpha = 1; } }
   drawLayers(ctx, w, h);
+  if (AV.on && num('aFlash') > 0 && AV.K > 0.05) { ctx.save(); ctx.globalCompositeOperation = 'lighter'; const c = (PALETTES.auto || PALETTES.cyan)[0]; ctx.fillStyle = `rgba(${c[0]},${c[1]},${c[2]},${Math.min(0.35, AV.K * 0.22 * num('aFlash'))})`; ctx.fillRect(0, 0, w, h); ctx.restore(); }
 }
 
+
+// ---------------------------------------------------------------- audio: decode the clip's track, find bands, hits, tempo, bars, sections
+const AH = 100;                           // analysis rate, values per second
+let AU = null, audioBuf = null;
+const AV = {on: false, bass: 0, mid: 0, high: 0, kick: 0, hat: 0, vox: 0, beatIdx: 0, beatPh: 0, beatInBar: 0, bar: 0, bpm: 0, K: 0, B: 0, M: 0, H: 0};
+async function analyseAudio(file){
+  AU = null; audioBuf = null;
+  let buf;
+  try { const Ctx = window.OfflineAudioContext || window.webkitOfflineAudioContext; buf = await new Ctx(2, 1, 48000).decodeAudioData(await file.arrayBuffer()); }
+  catch (e) { return false; }                         // no audio track, or the browser cannot decode it
+  if (!buf || buf.length < 4800) return false;
+  audioBuf = buf; await tick();
+  const sr = buf.sampleRate, ch = buf.numberOfChannels, dec = Math.max(1, Math.round(sr / 12000)), sr2 = sr / dec, m = Math.floor(buf.length / dec);
+  const c0 = buf.getChannelData(0), c1 = ch > 1 ? buf.getChannelData(1) : c0, x = new Float32Array(m);
+  for (let i = 0; i < m; i++) { let a = 0; const o = i * dec; for (let k = 0; k < dec; k++) a += c0[o + k] + c1[o + k]; x[i] = a / (2 * dec); }
+  const hop = Math.max(1, Math.round(sr2 / AH)), F = Math.floor(m / hop);
+  if (F < 100) return false;
+  const lp = fc => { const a = Math.exp(-TAU * fc / sr2); let y = 0; return v => (y = (1 - a) * v + a * y); };
+  const l1 = lp(150), l2 = lp(150), l3 = lp(300), l4 = lp(3000);
+  const E = [0, 1, 2, 3].map(() => new Float32Array(F)), acc = [0, 0, 0, 0]; let cnt = 0, f = 0;
+  for (let i = 0; i < m && f < F; i++) {
+    const v = x[i], b = l2(l1(v)), lo3 = l4(v), mid = lo3 - l3(v), hi = v - lo3;
+    acc[0] += b * b; acc[1] += mid * mid; acc[2] += hi * hi; acc[3] += v * v;
+    if (++cnt === hop) { for (let j = 0; j < 4; j++) { E[j][f] = Math.sqrt(acc[j] / hop); acc[j] = 0; } cnt = 0; f++; }
+  }
+  const q = (a, p) => Float32Array.from(a).sort()[Math.floor(a.length * p)] || 0;
+  if (q(E[3], 0.97) < 0.002) { audioBuf = null; return false; }      // silent track
+  E.forEach(a => { const p = q(a, 0.97) + 1e-9; for (let i = 0; i < F; i++) a[i] = Math.min(1.3, a[i] / p); });
+  await tick();
+  const flux = e => { const o = new Float32Array(F); let prev = Math.log1p(20 * e[0]); for (let i = 1; i < F; i++) { const c = Math.log1p(20 * e[i]); o[i] = Math.max(0, c - prev); prev = c; } return o; };
+  const fb = flux(E[0]), fm = flux(E[1]), fh = flux(E[2]), os = new Float32Array(F);
+  for (let i = 0; i < F; i++) os[i] = fb[i] + 0.5 * fh[i] + 0.5 * fm[i];
+  // tempo: autocorrelation of the onset curve, weighted towards 120 BPM so half/double tempo does not win
+  let mean = 0; for (let i = 0; i < F; i++) mean += os[i]; mean /= F;
+  const z = Float32Array.from(os, v => v - mean), minLag = Math.round(AH * 60 / 215), maxLag = Math.min(F - 2, Math.round(AH * 60 / 65)), ac = [];
+  let best = -1e9, bl = Math.round(AH * 0.5);
+  for (let lag = minLag; lag <= maxLag; lag++) { let sacc = 0; for (let i = lag; i < F; i++) sacc += z[i] * z[i - lag]; sacc /= (F - lag);
+    const bpm = AH * 60 / lag; ac[lag] = sacc * Math.exp(-0.5 * Math.pow(Math.log2(bpm / 120) / 0.7, 2)); if (ac[lag] > best) { best = ac[lag]; bl = lag; } }
+  let lagf = bl; if (ac[bl - 1] !== undefined && ac[bl + 1] !== undefined) { const a = ac[bl - 1], b = ac[bl], c = ac[bl + 1], d = a - 2 * b + c; if (d < 0) lagf = bl + 0.5 * (a - c) / d; }
+  const beatLen = lagf / AH, bpm = 60 / beatLen;
+  let off = 0, bo = -1;     // beat phase: the offset whose comb of beats collects the most onset energy
+  for (let o = 0; o < lagf; o += 0.5) { let sacc = 0; for (let t = o; t < F - 1; t += lagf) { const j = Math.round(t); sacc += os[j] + 0.5 * (os[j - 1] || 0) + 0.5 * os[j + 1]; } if (sacc > bo) { bo = sacc; off = o; } }
+  let bar0 = 0, bb = -1;    // downbeat: which of four beats carries the most bass
+  for (let p0 = 0; p0 < 4; p0++) { let sacc = 0, k = 0; for (let t = off; t < F - 1; t += lagf, k++) if (k % 4 === p0) sacc += fb[Math.round(t)]; if (sacc > bb) { bb = sacc; bar0 = p0; } }
+  // hits
+  const ps = o => { const a = new Float64Array(F + 1); for (let i = 0; i < F; i++) a[i + 1] = a[i] + o[i]; return a; };
+  const peaks = (o, th, gap, keep) => { const pre = ps(o), out = [], W = 150; let last = -1e9; const p90 = q(o, 0.95) + 1e-9;
+    for (let i = 1; i < F - 1; i++) { const a = Math.max(0, i - W), b = Math.min(F, i + W), mu = (pre[b] - pre[a]) / (b - a);
+      if (o[i] > o[i - 1] && o[i] >= o[i + 1] && o[i] > mu * th + 0.02 && i - last > gap && (!keep || keep(i))) { out.push([i, Math.min(1, o[i] / p90)]); last = i; } } return out; };
+  const kicks = peaks(fb, 2.0, 12, i => E[0][Math.min(F - 1, i + 2)] > 0.4), hats = peaks(fh, 2.0, 6), voxs = peaks(fm, 2.2, 10, i => E[0][i] < 0.6);
+  const env = (pk, tau) => { const a = new Float32Array(F), L = Math.round(tau * 6 * AH); for (const [i, v] of pk) for (let j = i; j < Math.min(F, i + L); j++) a[j] = Math.max(a[j], v * Math.exp(-(j - i) / (tau * AH))); return a; };
+  // voice presence: share of the 300 Hz to 3 kHz band, smoothed
+  const vp = new Float32Array(F); { let y = 0; const a = Math.exp(-1 / (0.4 * AH)); for (let i = 0; i < F; i++) { const r = E[1][i] / (E[0][i] + E[1][i] + E[2][i] + 0.05); y = (1 - a) * clamp(r * 1.7 - 0.2, 0, 1) + a * y; vp[i] = y; } }
+  // sections by loudness: 0.5 s blocks, three levels, short runs merged away, edges snapped to the beat grid
+  const bl2 = AH / 2, nb = Math.floor(F / bl2), Ls = [];
+  for (let b = 0; b < nb; b++) { let sacc = 0; for (let i = b * bl2; i < (b + 1) * bl2; i++) sacc += E[3][i]; Ls.push(sacc / bl2); }
+  const sm = Ls.map((v, i) => (Ls[i - 1] ?? v) * 0.25 + v * 0.5 + (Ls[i + 1] ?? v) * 0.25), sorted = [...sm].sort((a, b) => a - b), t1 = sorted[Math.floor(nb * 0.4)], t2 = sorted[Math.floor(nb * 0.72)];
+  const lv = sm.map(v => v < t1 ? 0 : v < t2 ? 1 : 2);
+  let segs = []; lv.forEach((l, b) => { if (segs.length && segs[segs.length - 1].level === l) segs[segs.length - 1].b1 = b + 1; else segs.push({b0: b, b1: b + 1, level: l}); });
+  const minB = Math.max(6, Math.round(beatLen * 8 * 2));
+  for (;;) { let si = -1, sl = 1e9; segs.forEach((g, i) => { if (g.b1 - g.b0 < sl) { sl = g.b1 - g.b0; si = i; } });
+    if (si < 0 || sl >= minB || segs.length < 2) break;
+    const nbIdx = si > 0 ? si - 1 : si + 1, nbg = segs[nbIdx]; nbg.b0 = Math.min(nbg.b0, segs[si].b0); nbg.b1 = Math.max(nbg.b1, segs[si].b1); segs.splice(si, 1);
+    const merged = []; segs.forEach(g => { const l = merged[merged.length - 1]; if (l && l.level === g.level) l.b1 = g.b1; else merged.push({...g}); }); segs = merged; }
+  const snap = t => clamp(Math.round((t - off / AH) / beatLen) * beatLen + off / AH, 0, F / AH);
+  const sections = segs.map((g, i) => ({t0: i === 0 ? 0 : snap(g.b0 * 0.5), t1: i === segs.length - 1 ? F / AH : snap(g.b1 * 0.5), level: g.level})).filter(g => g.t1 - g.t0 > 0.2);
+  AU = {F, E, kickA: env(kicks, 0.14), hatA: env(hats, 0.06), voxA: env(voxs, 0.18), vp, bpm, beatLen, off: off / AH, bar0, kicks: kicks.map(a => a[0] / AH), hats: hats.map(a => a[0] / AH), vox: voxs.map(a => a[0] / AH), sections, dur: F / AH, level: sm};
+  return true;
+}
+function aAt(tv){
+  if (!AU) { AV.on = false; return AV; }
+  const f = clamp(tv * AH, 0, AU.F - 1), i = Math.floor(f), j = Math.min(AU.F - 1, i + 1), fr = f - i, g = a => a[i] * (1 - fr) + a[j] * fr;
+  AV.on = true; AV.bass = Math.min(1, g(AU.E[0])); AV.mid = Math.min(1, g(AU.E[1])); AV.high = Math.min(1, g(AU.E[2]));
+  AV.kick = g(AU.kickA); AV.hat = g(AU.hatA); AV.vox = g(AU.voxA);
+  const b = (tv - AU.off) / AU.beatLen, n = Math.floor(b);
+  AV.beatIdx = n; AV.beatPh = b - n; AV.beatInBar = (((n - AU.bar0) % 4) + 4) % 4; AV.bar = Math.floor((n - AU.bar0) / 4); AV.bpm = AU.bpm;
+  return AV;
+}
+const fxBase = id => fxOn[id] ? +$(id).value : 0;
+function applyAudio(t){
+  const a = $('audOn').checked && AU ? aAt(getStart() + t) : (AV.on = false, AV), g = AV.on ? num('aGain') : 0;
+  const B = a.bass * num('aBass') * g, M = a.mid * num('aMid') * g, H = a.high * num('aHigh') * g, K = a.kick * num('aBeat') * g;
+  AV.B = B; AV.M = M; AV.H = H; AV.K = K;
+  U.uPulse.value = fxBase('fxPulse') + B * 0.5; U.uWave.value = fxBase('fxWave') + M * 0.35; U.uTurb.value = fxBase('fxTurb') + H * 0.4;
+  U.uScan.value = fxBase('fxScan') + (K > 0.15 ? K * 0.8 : 0); U.uSize.value = +$('size').value + K * 0.8; U.uDepth.value = +$('depth').value * (1 + B * 0.6);
+  if (g > 0) U.uScatter.value = Math.max(U.uScatter.value, K * num('aScat'));
+  camera.position.z = baseZ / (zoom * (1 + K * 0.05));
+  AM = {};
+  if (g > 0) {
+    AM.nDens = v => v * (1 + 0.7 * K); AM.nMax = v => v * (1 + 0.5 * K); AM.lOp = v => clamp(v + 0.4 * M, 0, 1); AM.cLen = v => v * (1 + 0.8 * B);
+    AM.pCon = v => v * (1 + 0.5 * B); AM.pAnim = v => v + 3 * H; AM.dThr = v => clamp(v + 0.12 * (a.hat - 0.3), 0.2, 0.8); AM.gSize = v => v * (1 + 0.5 * K);
+  }
+}
 // ---------------------------------------------------------------- HUD (markers, links, frame), drawn in target-frame pixels
 const v3 = new THREE.Vector3(), sgn = n => (n >= 0 ? '+' : '−') + Math.abs(n).toFixed(2);
 function drawHud(ctx, w, h){
@@ -524,7 +665,7 @@ function drawHud(ctx, w, h){
   }
   if (tracked.length) {
     const pts = tracked.map(i => { displaced(i, v3); const wx = v3.x, wy = v3.y, wz = v3.z; v3.applyMatrix4(group.matrixWorld).project(camera);
-      return [(v3.x * 0.5 + 0.5) * w, (-v3.y * 0.5 + 0.5) * h, homeX[i] / 150, homeY[i] / 150, zOf(i) * U.uDepth.value / 150, wx, wy, wz]; });
+      return [(v3.x * 0.5 + 0.5) * w, (-v3.y * 0.5 + 0.5) * h, homeX[i] / 150, homeY[i] / 150, zFull(i) / 150, wx, wy, wz]; });
     const lm = $('tLinks').value, la = +$('lAlpha').value;
     const seg = (a, b, al) => { ctx.strokeStyle = `rgba(${col},${al})`; ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke(); };
     ctx.lineWidth = 0.8 * k;
@@ -533,12 +674,12 @@ function drawHud(ctx, w, h){
     else if (lm === 'hub') pts.forEach((p, n) => n && seg(pts[0], p, la));
     else if (lm === 'all') { for (let a = 0; a < pts.length; a++) for (let b = a + 1; b < pts.length; b++) seg(pts[a], pts[b], la * 0.6); }
     else links.forEach(([a, b]) => seg(pts[a], pts[b], la));
-    const s = +$('tSize').value * k, style = $('tStyle').value, lab = $('tLabel').value, pixc = $('tColor').value === 'pixel', lift = v => Math.round(255 * (0.3 + 0.7 * v));
+    const sB = +$('tSize').value * k, style = $('tStyle').value, lab = $('tLabel').value, pixc = $('tColor').value === 'pixel', lift = v => Math.round(255 * (0.3 + 0.7 * v));
     ctx.strokeStyle = ctx.fillStyle = `rgba(${col},.9)`; ctx.lineWidth = Math.max(1, 1.1 * k);
     ctx.font = `${Math.round(10.5 * k)}px ui-monospace, Menlo, Consolas, monospace`; ctx.textBaseline = 'middle';
-    if (lm === 'hub' && pts[0]) { ctx.beginPath(); ctx.arc(pts[0][0], pts[0][1], s * 2.2, 0, TAU); ctx.stroke(); }
+    if (lm === 'hub' && pts[0]) { ctx.beginPath(); ctx.arc(pts[0][0], pts[0][1], sB * 2.2, 0, TAU); ctx.stroke(); }
     pts.forEach((p, n) => {
-      const [x, y] = p, i = tracked[n], q = i * 4;
+      const [x, y] = p, i = tracked[n], q = i * 4, hot = AV.on && AV.beatIdx % tracked.length === n, s = sB * (1 + (AV.on ? AV.K * (hot ? 1.1 : 0.15) : 0));
       if (pixc) ctx.strokeStyle = ctx.fillStyle = `rgb(${lift(pix[q] / 255)},${lift(pix[q + 1] / 255)},${lift(pix[q + 2] / 255)})`;
       ctx.beginPath();
       if (style === 'brackets') { const c = s * 0.55; ctx.moveTo(x - s, y - s + c); ctx.lineTo(x - s, y - s); ctx.lineTo(x - s + c, y - s); ctx.moveTo(x + s - c, y + s); ctx.lineTo(x + s, y + s); ctx.lineTo(x + s, y + s - c); ctx.stroke(); }
@@ -551,8 +692,9 @@ function drawHud(ctx, w, h){
         const txt = lab === 'num' ? num : lab === 'depth' ? `${num} Z ${sgn(p[4])}` : lab === 'lum' ? `${num} L ${lumA[i].toFixed(2)}`
           : lab === 'hex' ? `${num} #${[0, 1, 2].map(c => pix[q + c].toString(16).padStart(2, '0')).join('').toUpperCase()}`
           : `${num} ${sgn(p[2] + jit)} ${sgn(p[3] - jit)} ${sgn(p[4])}`;
-        const tw = ctx.measureText(txt).width, flip = x + s + 5 * k + tw > w - 24 * k;
-        ctx.fillText(txt, flip ? x - s - 5 * k - tw : x + s + 5 * k, y - s);
+        const tx2 = hot && AV.K > 0.35 ? `BEAT ${String(((AV.beatIdx % 999) + 999) % 999).padStart(3, '0')}` : txt;
+        const tw = ctx.measureText(tx2).width, flip = x + s + 5 * k + tw > w - 24 * k;
+        ctx.fillText(tx2, flip ? x - s - 5 * k - tw : x + s + 5 * k, y - s);
       }
     });
   }
@@ -560,22 +702,29 @@ function drawHud(ctx, w, h){
     const m = 22 * k, L = 22 * k; ctx.strokeStyle = 'rgba(160,220,235,.55)'; ctx.lineWidth = Math.max(1, k); ctx.beginPath();
     [[m, m, 1, 1], [w - m, m, -1, 1], [m, h - m, 1, -1], [w - m, h - m, -1, -1]].forEach(([x, y, a, b]) => { ctx.moveTo(x, y + L * b); ctx.lineTo(x, y); ctx.lineTo(x + L * a, y); });
     ctx.stroke(); ctx.fillStyle = 'rgba(160,220,235,.75)'; ctx.font = `${Math.round(10 * k)}px ui-monospace, Menlo, Consolas, monospace`; ctx.textBaseline = 'middle';
-    ctx.fillText(`VIDEO·FIELD   ${count.toLocaleString('ru-RU')} PTS   T ${t.toFixed(2)}S`, m + 8 * k, h - m - 12 * k);
+    ctx.fillText(`VIDEO·FIELD   ${count.toLocaleString('ru-RU')} PTS   T ${t.toFixed(2)}S` + (AV.on ? `   BPM ${AV.bpm.toFixed(0)}   BAR ${String(AV.bar + 1).padStart(3, '0')}.${AV.beatInBar + 1}` : ''), m + 8 * k, h - m - 12 * k);
+    if (AV.on) {   // scope: three band meters + four beat cells, bottom right
+      const bx = w - m - 90 * k, by = h - m - 6 * k, bw = 14 * k;
+      [AV.bass, AV.mid, AV.high].forEach((v, n) => { ctx.fillStyle = 'rgba(160,220,235,.25)'; ctx.fillRect(bx + n * (bw + 4 * k), by - 30 * k, bw, 30 * k); ctx.fillStyle = 'rgba(160,220,235,.85)'; ctx.fillRect(bx + n * (bw + 4 * k), by - 30 * k * Math.min(1, v), bw, 30 * k * Math.min(1, v)); });
+      for (let n = 0; n < 4; n++) { ctx.fillStyle = n === AV.beatInBar ? 'rgba(160,220,235,.95)' : 'rgba(160,220,235,.25)'; ctx.fillRect(bx + 3 * (bw + 4 * k) + 6 * k + n * 7 * k, by - 7 * k, 5 * k, 5 * k); }
+      if (AV.vox > 0.4) { ctx.fillStyle = `rgba(160,220,235,${Math.min(1, AV.vox)})`; ctx.fillText('VOX', m + 8 * k, m + 14 * k); }
+    }
   }
 }
 
 // ---------------------------------------------------------------- video loading + playback
 let playing = true, objUrl = null;
+function playVideo(){ video.muted = !$('snd').checked; const r = video.play(); if (r && r.catch) r.catch(() => { video.muted = true; video.play().catch(() => {}); }); }
 const fmtT = v => v.toFixed(1) + ' с';
 bindRange('dur', fmtT); bindRange('tStart', fmtT); bindRange('cyc', fmtT);
 function syncLimits(){
   const start = getStart(), maxD = Math.min(MAX_DUR, Math.max(0.5, vdur - start));
   $('dur').max = maxD.toFixed(1); if (getDur() > maxD) $('dur').value = maxD.toFixed(1);
-  $('durO').textContent = fmtT(getDur());
+  setOut('dur', fmtT(getDur()));
 }
 $('tStart').addEventListener('input', () => { syncLimits(); video.currentTime = getStart(); });
 $('dur').addEventListener('input', () => { if (video.currentTime > getStart() + getDur()) video.currentTime = getStart(); });
-$('play').onclick = () => { playing = !playing; if (hasVideo) playing ? video.play().catch(() => {}) : video.pause();
+$('play').onclick = () => { playing = !playing; if (hasVideo) playing ? playVideo() : video.pause();
   $('play').textContent = playing ? '❚❚ Пауза' : '▶ Играть'; $('play').classList.toggle('on', playing); };
 $('time').addEventListener('input', e => { if (!hasVideo) return; video.currentTime = getStart() + +e.target.value * getDur() * 0.999; if (playing) $('play').click(); });
 
@@ -588,8 +737,8 @@ function loadVideo(file){
     if (!isFinite(vdur) || !video.videoWidth) { status('Не удалось прочитать видео. Попробуй MP4 (H.264) или WebM.'); return; }
     $('tStart').max = Math.max(0, vdur - 0.5).toFixed(1); $('tStart').value = 0;
     $('dur').max = Math.min(MAX_DUR, vdur).toFixed(1); $('dur').value = Math.min(MAX_DUR, vdur).toFixed(1);
-    syncLimits(); $('tStartO').textContent = fmtT(0);
-    $('cyc').value = Math.min(6, getDur()).toFixed(1); $('cycO').textContent = fmtT(+$('cyc').value);
+    syncLimits(); setOut('tStart', fmtT(0));
+    $('cyc').value = Math.min(6, getDur()).toFixed(1); setOut('cyc', fmtT(+$('cyc').value));
     $('format').value = 'src'; layoutStage();          // output frame = reference frame (up to 2560 on the long side)
     const big = Math.max(video.videoWidth, video.videoHeight);
     $('vinfo').textContent = `${file.name} · ${video.videoWidth}×${video.videoHeight} · ${vdur.toFixed(1)} с` +
@@ -600,9 +749,14 @@ function loadVideo(file){
     U.uTex.value = tex; hasVideo = true; $('empty').hidden = true;
     buildGrid(); layoutStage(); $('render').disabled = false;
     video.currentTime = 0;
-    if (playing) video.play().catch(() => {});
+    if (playing) playVideo();
     detectFps();
-    status('Готово к просмотру. Настрой эффекты и жми «Скачать MP4».');
+    status('Анализирую звук…');
+    const hasAudio = await analyseAudio(file);
+    $('audInfo').textContent = hasAudio ? `Звук найден: темп ${AU.bpm.toFixed(0)} BPM, ${AU.kicks.length} ударов, ${AU.sections.length} секций по громкости. Слова не распознаются: голос определяется по ритму слогов.` : 'В файле нет звука, который удалось прочитать. Реакция на ритм отключена.';
+    $('audOn').checked = hasAudio; $('audOn').disabled = !hasAudio; $('expAud').disabled = !hasAudio; $('snd').disabled = !hasAudio;
+    document.dispatchEvent(new CustomEvent('vf-ready'));
+    status('Готово к просмотру. Настрой эффекты или оставь авто-режим и жми «Скачать MP4».');
   };
   video.onerror = () => status('Браузер не смог открыть это видео. Попробуй MP4 (H.264) или WebM.');
   video.src = objUrl;
@@ -624,6 +778,7 @@ function detectFps(){
     $('fps').value = String(best); } };
   video.requestVideoFrameCallback(cb);
 }
+$('snd').onchange = () => { video.muted = !$('snd').checked; };
 $('vidFile').onchange = e => loadVideo(e.target.files[0]);
 let dragDepth = 0;
 addEventListener('dragenter', e => { e.preventDefault(); dragDepth++; $('drop').hidden = false; });
@@ -631,6 +786,224 @@ addEventListener('dragleave', () => { if (--dragDepth <= 0) $('drop').hidden = t
 addEventListener('dragover', e => e.preventDefault());
 addEventListener('drop', e => { e.preventDefault(); dragDepth = 0; $('drop').hidden = true; loadVideo(e.dataTransfer.files[0]); });
 
+
+// ---------------------------------------------------------------- auto director: reads picture + sound, cuts the clip into sections, gives each one a look
+let VT = null, planSecs = [], curSec = -1, seed = 1;
+const hsl2rgb = (h, sa, l) => { const a = sa * Math.min(l, 1 - l), f = n => { const k = (n + h / 30) % 12; return l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1)); }; return [f(0), f(8), f(4)]; };
+async function visualAnalyse(){
+  const st = getStart(), D = getDur(), N = 8, Wc = 64, Hc = Math.max(16, Math.round(64 / aspect));
+  const c = document.createElement('canvas'); c.width = Wc; c.height = Hc; const x = c.getContext('2d', {willReadFrequently: true});
+  const grab = () => { x.drawImage(video, 0, 0, Wc, Hc); return x.getImageData(0, 0, Wc, Hc).data; };
+  const was = playing; video.pause();
+  let lum = 0, con = 0, edge = 0, sat = 0, mot = 0; const hue = new Float32Array(36);
+  for (let n = 0; n < N; n++) {
+    const ts = st + (n + 0.5) / N * D;
+    await seekTo(Math.min(ts, vdur - 0.25)); const a = grab();
+    await seekTo(Math.min(ts + 0.15, vdur - 0.05)); const b = grab();
+    const L = new Float32Array(Wc * Hc); let m = 0, m2 = 0, sa = 0, mo = 0;
+    for (let i = 0; i < Wc * Hc; i++) {
+      const r = a[i * 4] / 255, g = a[i * 4 + 1] / 255, bl = a[i * 4 + 2] / 255, mx = Math.max(r, g, bl), mn = Math.min(r, g, bl), l = 0.299 * r + 0.587 * g + 0.114 * bl;
+      L[i] = l; m += l; m2 += l * l; const sv = mx > 0.001 ? (mx - mn) / mx : 0; sa += sv;
+      if (sv > 0.2 && mx > 0.15) { const d = mx - mn; let hh = mx === r ? ((g - bl) / d) % 6 : mx === g ? (bl - r) / d + 2 : (r - g) / d + 4; hh = (hh * 60 + 360) % 360; hue[Math.floor(hh / 10) % 36] += sv * mx; }
+      mo += Math.abs(l - (0.299 * b[i * 4] + 0.587 * b[i * 4 + 1] + 0.114 * b[i * 4 + 2]) / 255);
+    }
+    let e = 0; for (let y = 0; y < Hc - 1; y++) for (let xx = 0; xx < Wc - 1; xx++) { const i = y * Wc + xx; e += Math.abs(L[i + 1] - L[i]) + Math.abs(L[i + Wc] - L[i]); }
+    const nn = Wc * Hc; lum += m / nn; con += Math.sqrt(Math.max(0, m2 / nn - (m / nn) ** 2)); edge += e / nn; sat += sa / nn; mot += mo / nn;
+  }
+  await seekTo(st); if (was) playVideo();
+  const sm = Array.from(hue, (v, i) => v + 0.5 * (hue[(i + 35) % 36] + hue[(i + 1) % 36])); let h1 = 0; sm.forEach((v, i) => { if (v > sm[h1]) h1 = i; });
+  let h2 = -1; sm.forEach((v, i) => { const d = Math.min((i - h1 + 36) % 36, (h1 - i + 36) % 36); if (d >= 6 && v > sm[h1] * 0.35 && (h2 < 0 || v > sm[h2])) h2 = i; });
+  const colored = sm[h1] > 0.4 && sat / N > 0.12, H1 = colored ? h1 * 10 + 5 : 190, H2 = colored ? (h2 >= 0 ? h2 * 10 + 5 : (H1 + 150) % 360) : 330;
+  const c0 = hsl2rgb(H1, 0.85, 0.55), c1 = hsl2rgb(H2, 0.8, 0.6);
+  U.uP0.value.set(...c0); U.uP1.value.set(...c1); PALETTES.auto = [c0.map(v => Math.round(v * 255)), c1.map(v => Math.round(v * 255))];
+  VT = {lum: lum / N, contrast: con / N, edge: edge / N, sat: sat / N, motion: mot / N, h1: H1, h2: H2, colored};
+  return VT;
+}
+const LOOKS = {
+  aura:    {name: 'Аура',    hue: 190, layers: {cloud: 1},                                         fx: {fxTurb: 0.3, fxPulse: 0.25},                    color: [5, 4, 0]},
+  net:     {name: 'Сеть',    hue: 215, layers: {cloud: 0.5, nodes: 1, links: 1},                   fx: {fxPulse: 0.3, fxWave: 0.25},                    color: [4, 5]},
+  print:   {name: 'Печать',  hue: 40,  layers: {dither: 1, nodes: 0.55, cloud: 0.22},              fx: {fxScan: 0.4},                                   color: [5, 0]},
+  plotter: {name: 'Плоттер', hue: 150, layers: {plot: 1, curtain: 0.55},                           fx: {fxTurb: 0.2},                                   color: [5, 2]},
+  glyph:   {name: 'Глифы',   hue: 120, layers: {glyph: 1, cloud: 0.3, links: 0.5},                 fx: {fxWave: 0.3},                                   color: [5, 0]},
+  drop:    {name: 'Дроп',    hue: 345, layers: {cloud: 1, nodes: 1, links: 0.8, curtain: 0.7, glitch: 1}, fx: {fxPulse: 0.5, fxWave: 0.4, fxScan: 0.6}, color: [4, 0, 5], kick: 0.45},
+};
+const WEIGHTS = [{aura: 3, net: 2, plotter: 1.5, glyph: 0.6}, {net: 3, print: 2, plotter: 2, glyph: 1, aura: 1}, {drop: 4, print: 2, net: 1.5, plotter: 1.5, glyph: 1}];
+function makeLook(key, level, R){
+  const T = LOOKS[key], pick = a => a[Math.floor(R() * a.length)], boost = AU ? 0.75 + 0.35 * level : 1, fx = {};
+  Object.entries(T.fx).forEach(([id, v]) => fx[id] = clamp(v * boost, 0.1, 1));
+  return {key, name: T.name, hue: T.hue, level, layers: {...T.layers}, fx, kick: T.kick ?? 0.12,
+    p: {nShape: pick(['bracket', 'circle', 'diamond', 'cross', 'mixed']), lMode: pick(['delaunay', 'hybrid', 'proximity', 'chain', 'radial']), dAlgo: pick(['atkinson', 'fs', 'bayer', 'noise']),
+        dPitch: level === 2 ? pick([3, 4, 5]) : pick([5, 6, 8]), pCol: pick(['#ffffff', '#3fe3f2', '#ff4d3a']), cDir: pick(['down', 'up', 'both']), pLines: pick([60, 90, 130]), gCols: pick([70, 100, 140]), colorMode: pick(T.color)}};
+}
+function buildPlan(){
+  if (!hasVideo) return;
+  const R = rng(seed * 7919 + 13), D = getDur(), st = getStart(); let secs = [];
+  if (AU) AU.sections.forEach(g => { const a = Math.max(g.t0, st) - st, b = Math.min(g.t1, st + D) - st; if (b - a > 0.3) secs.push({t0: a, t1: b, level: g.level}); });
+  if (!secs.length) { const n = Math.max(1, Math.round(D / 6)), pat = [0, 1, 2, 1]; for (let i = 0; i < n; i++) secs.push({t0: i * D / n, t1: (i + 1) * D / n, level: pat[i % 4]}); }
+  secs[0].t0 = 0; secs[secs.length - 1].t1 = D; for (let i = 1; i < secs.length; i++) secs[i].t0 = secs[i - 1].t1;
+  const maxLen = AU ? Math.max(8, AU.beatLen * 32) : 8, split = [];
+  secs.forEach(g => { const n = Math.max(1, Math.round((g.t1 - g.t0) / maxLen)); for (let i = 0; i < n; i++) split.push({t0: g.t0 + (g.t1 - g.t0) * i / n, t1: g.t0 + (g.t1 - g.t0) * (i + 1) / n, level: g.level}); });
+  let prev = '';
+  planSecs = split.map(g => {
+    const w = {...WEIGHTS[g.level]}, V = VT || {lum: 0.4, edge: 0.1, sat: 0.2, motion: 0.05};
+    if (V.lum > 0.55) { w.print = (w.print || 0) * 2; w.plotter = (w.plotter || 0) * 1.6; w.aura = (w.aura || 0) * 0.6; }
+    if (V.lum < 0.25) w.aura = (w.aura || 0) * 1.3;
+    if (V.edge > 0.12) w.net = (w.net || 0) * 1.5;
+    if (V.sat > 0.3) { w.aura = (w.aura || 0) * 1.4; w.drop = (w.drop || 0) * 1.2; }
+    if (V.motion > 0.08) w.drop = (w.drop || 0) * 1.25;
+    if (w[prev]) w[prev] *= 0.15;
+    const tot = Object.values(w).reduce((a, b) => a + b, 0); let r = R() * tot, key = Object.keys(w)[0];
+    for (const [k2, v] of Object.entries(w)) { r -= v; if (r <= 0) { key = k2; break; } }
+    prev = key; return {...g, look: makeLook(key, g.level, R)};
+  });
+  curSec = -1; tlDirty = true; renderSecList();
+}
+function setv(id, val){ const el = $(id); if (!el) return; if (el.type === 'checkbox') { el.checked = !!val; el.dispatchEvent(new Event('change')); } else { el.value = val; el.dispatchEvent(new Event('input')); el.dispatchEvent(new Event('change')); } }
+function setFx(id, on, val){ fxOn[id] = on; if (val !== undefined) { $(id).value = val; $(id).parentElement.querySelector('output').textContent = f2(+val); } applyFx(id); }
+function applyLook(sec){
+  const L = sec.look, P = L.p;
+  Object.keys(FX).forEach(id => setFx(id, id in L.fx, L.fx[id]));
+  setv('nShape', P.nShape); setv('lMode', P.lMode); setv('dAlgo', P.dAlgo); setv('dPitch', P.dPitch); setv('pCol', P.pCol); setv('cDir', P.cDir); setv('pLines', P.pLines); setv('gCols', P.gCols);
+  setv('colorMode', P.colorMode); setv('geoColor', 'auto'); setv('dPal', 'auto'); setv('depthY', 0.35);
+  setv('aScat', L.kick); setv('aFlash', [0.3, 0.6, 1][L.level]); setv('aBeat', [0.8, 1, 1.2][L.level]); setv('orbit', [0.25, 0.4, 0.6][L.level]);
+}
+function applyAuto(t){
+  if (!autoOn || !planSecs.length) return;
+  let si = planSecs.findIndex(g => t >= g.t0 && t < g.t1); if (si < 0) si = t < planSecs[0].t0 ? 0 : planSecs.length - 1;
+  const sec = planSecs[si]; if (si !== curSec) { applyLook(sec); curSec = si; syncSwitches(); markSec(); }
+  const prev = si > 0 ? planSecs[si - 1] : null, r = prev ? clamp((t - sec.t0) / 0.4, 0, 1) : 1, e = r * r * (3 - 2 * r);
+  Object.keys(LA).forEach(k => { LA[k] = (sec.look.layers[k] || 0) * e + (prev ? (prev.look.layers[k] || 0) * (1 - e) : 0); });
+}
+function setAuto(on){
+  if (on && !hasVideo) on = false;
+  if (!on && autoOn) { Object.keys(lyOn).forEach(k => lyOn[k] = LA[k] > 0.5); $('cloudOn').checked = LA.cloud > 0.5; }
+  autoOn = on; $('autoOn').checked = on; document.body.classList.toggle('auto', on); curSec = -1;
+  if (on && !planSecs.length) buildPlan();
+  syncSwitches(); tlDirty = true;
+}
+$('autoOn').addEventListener('change', e => setAuto(e.target.checked));
+$('reroll').onclick = () => { seed++; $('seedO').textContent = '#' + seed; buildPlan(); if (!autoOn) setAuto(true); };
+$('autoFreeze').onclick = () => setAuto(false);
+let rebuildT = 0; ['tStart', 'dur'].forEach(id => $(id).addEventListener('change', () => { clearTimeout(rebuildT); rebuildT = setTimeout(() => { buildPlan(); }, 300); }));
+document.addEventListener('vf-ready', async () => {
+  planSecs = []; curSec = -1; VT = null; setAuto(false);
+  status('Смотрю картинку: яркость, контуры, цвета, движение…'); await visualAnalyse();
+  buildPlan(); setAuto(true);
+  const tr = [`яркость ${(VT.lum * 100).toFixed(0)}%`, `контуры ${(VT.edge * 100).toFixed(0)}`, `цвет ${(VT.sat * 100).toFixed(0)}%`, `движение ${(VT.motion * 100).toFixed(0)}`];
+  $('traits').innerHTML = tr.map(x => `<span class="chip">${x}</span>`).join('') + `<span class="chip sw-h" style="--c:hsl(${VT.h1} 80% 55%)">оттенок 1</span><span class="chip sw-h" style="--c:hsl(${VT.h2} 75% 60%)">оттенок 2</span>`;
+  status('Авто-режим собрал оформление: ' + planSecs.length + ' секц. Можно менять любую или нажать «Свой режим».');
+});
+const LOOK_KEYS = Object.keys(LOOKS);
+function renderSecList(){
+  const box = $('secList'); if (!box) return; box.innerHTML = '';
+  planSecs.forEach((g, i) => {
+    const row = document.createElement('div'); row.className = 'sec'; row.dataset.i = i;
+    const t = v => `${Math.floor(v / 60)}:${(v % 60).toFixed(1).padStart(4, '0')}`;
+    row.innerHTML = `<button class="secgo" title="К началу секции">${t(g.t0)}–${t(g.t1)}</button><i class="lv l${g.level}" title="Громкость: ${['тихо', 'средне', 'громко'][g.level]}"></i><select aria-label="Оформление секции ${i + 1}">${LOOK_KEYS.map(k => `<option value="${k}"${k === g.look.key ? ' selected' : ''}>${LOOKS[k].name}</option>`).join('')}</select>`;
+    row.querySelector('.secgo').onclick = () => { video.currentTime = getStart() + g.t0 + 0.01; };
+    row.querySelector('select').onchange = e => { g.look = makeLook(e.target.value, g.level, rng(seed * 31 + i * 7 + e.target.value.length)); curSec = -1; tlDirty = true; if (!autoOn) setAuto(true); };
+    box.appendChild(row);
+  });
+  markSec();
+}
+function markSec(){ document.querySelectorAll('#secList .sec').forEach((r, i) => r.classList.toggle('now', i === curSec)); }
+
+// ---------------------------------------------------------------- timeline: waveform, beat grid, hits, sections, one lane per module
+const tl = $('tl'), tlx = tl.getContext('2d'), TL_GUT = 74, LANES = [['cloud', 'ОБЛАКО', 190], ['nodes', 'УЗЛЫ', 215], ['links', 'СВЯЗИ', 230], ['dither', 'ПЕЧАТЬ', 40], ['curtain', 'ЗАВЕСА', 280], ['plot', 'ПЛОТТЕР', 150], ['glyph', 'ГЛИФЫ', 120], ['glitch', 'ГЛИТЧ', 345]];
+let tlStatic = document.createElement('canvas'), tlW = 0, tlH = 0;
+function sizeTimeline(){
+  const r = tl.getBoundingClientRect(), dpr = Math.min(2, devicePixelRatio || 1); tlW = Math.max(100, Math.round(r.width * dpr)); tlH = Math.max(60, Math.round(r.height * dpr));
+  tl.width = tlStatic.width = tlW; tl.height = tlStatic.height = tlH; tlDirty = true;
+}
+function drawTlStatic(){
+  const c = tlStatic.getContext('2d'), w = tlW, h = tlH, k = h / 215, g = TL_GUT * k, D = getDur(), st = getStart(), X = t => g + t / D * (w - g);
+  c.setTransform(1, 0, 0, 1, 0, 0); c.fillStyle = '#080c10'; c.fillRect(0, 0, w, h); c.font = `${Math.round(8.5 * k)}px ui-monospace, Menlo, monospace`; c.textBaseline = 'middle';
+  // ruler
+  const step = D > 120 ? 30 : D > 40 ? 10 : D > 12 ? 2 : 1; c.fillStyle = '#6e8790'; c.strokeStyle = 'rgba(160,220,235,.14)'; c.lineWidth = 1;
+  for (let t = 0; t <= D + 1e-6; t += step) { const x = X(t); c.beginPath(); c.moveTo(x, 14 * k); c.lineTo(x, h); c.stroke(); c.fillText(`${Math.floor((st + t) / 60)}:${String(Math.floor((st + t) % 60)).padStart(2, '0')}`, x + 3 * k, 7 * k); }
+  // waveform (loudness) + beat grid
+  const wy0 = 16 * k, wh = 46 * k;
+  if (AU) {
+    c.fillStyle = 'rgba(63,227,242,.55)'; const px = Math.max(1, Math.floor((w - g) / 1));
+    for (let x = 0; x < px; x += 2) { const t0 = st + x / px * D, t1 = st + (x + 2) / px * D, i0 = Math.floor(t0 * AH), i1 = Math.max(i0 + 1, Math.floor(t1 * AH)); let m = 0; for (let i = i0; i < i1 && i < AU.F; i++) m = Math.max(m, AU.E[3][i]); const hh = Math.min(1, m) * wh; c.fillRect(g + x, wy0 + (wh - hh) / 2, 1.6, Math.max(1, hh)); }
+    for (let n = Math.ceil((st - AU.off) / AU.beatLen);; n++) { const t = AU.off + n * AU.beatLen - st; if (t > D) break; if (t < 0) continue; const bar = ((n - AU.bar0) % 4 + 4) % 4 === 0; c.strokeStyle = bar ? 'rgba(255,255,255,.38)' : 'rgba(255,255,255,.12)'; c.beginPath(); c.moveTo(X(t), wy0); c.lineTo(X(t), wy0 + wh); c.stroke(); }
+    c.fillStyle = '#6e8790'; c.fillText('ЗВУК', 6 * k, wy0 + wh / 2);
+    // hits + voice
+    const hy = wy0 + wh + 4 * k; c.fillStyle = '#6e8790'; c.fillText('УДАРЫ', 6 * k, hy + 4 * k); c.fillText('ГОЛОС', 6 * k, hy + 14 * k);
+    c.fillStyle = '#ff7a59'; AU.kicks.forEach(t => { t -= st; if (t >= 0 && t <= D) c.fillRect(X(t), hy, 1.5 * k, 8 * k); });
+    c.fillStyle = '#ffe28a'; AU.hats.forEach(t => { t -= st; if (t >= 0 && t <= D) c.fillRect(X(t), hy + 5 * k, 1 * k, 3 * k); });
+    for (let x = 0; x < w - g; x += 2) { const t = st + x / (w - g) * D, v = AU.vp[Math.min(AU.F - 1, Math.floor(t * AH))]; c.fillStyle = `rgba(180,140,255,${0.15 + 0.7 * v})`; c.fillRect(g + x, hy + 10 * k, 2, 8 * k); }
+  } else { c.fillStyle = '#6e8790'; c.fillText('ЗВУКА НЕТ', 6 * k, wy0 + wh / 2); }
+  // sections
+  const sy = 16 * k + 46 * k + 4 * k + 22 * k, sh = 20 * k;
+  c.fillStyle = '#6e8790'; c.fillText('СЕКЦИИ', 6 * k, sy + sh / 2);
+  planSecs.forEach(gg => { const x0 = X(gg.t0), x1 = X(gg.t1); c.fillStyle = `hsla(${gg.look.hue},70%,50%,.55)`; c.fillRect(x0 + 1, sy, x1 - x0 - 2, sh); c.fillStyle = '#fff'; c.fillText(gg.look.name.toUpperCase(), x0 + 5 * k, sy + sh / 2); });
+  // lanes
+  const ly0 = sy + sh + 6 * k, lh = 10 * k;
+  LANES.forEach(([key, name, hue], i) => {
+    const y = ly0 + i * (lh + 1.5 * k); c.fillStyle = '#6e8790'; c.fillText(name, 6 * k, y + lh / 2);
+    c.fillStyle = 'rgba(255,255,255,.04)'; c.fillRect(g, y, w - g, lh);
+    if (autoOn && planSecs.length) planSecs.forEach(gg => { const wv = gg.look.layers[key] || 0; if (wv > 0.02) { c.fillStyle = `hsla(${hue},75%,55%,${0.25 + 0.65 * wv})`; c.fillRect(X(gg.t0) + 1, y, X(gg.t1) - X(gg.t0) - 2, lh); } });
+    else if (ly(key) > 0.5) { c.fillStyle = `hsla(${hue},75%,55%,.7)`; c.fillRect(g, y, w - g, lh); }
+  });
+  tlDirty = false;
+}
+function drawTimeline(t){
+  if (!tlW) sizeTimeline(); if (tlDirty) drawTlStatic();
+  tlx.setTransform(1, 0, 0, 1, 0, 0); tlx.drawImage(tlStatic, 0, 0);
+  const k = tlH / 215, g = TL_GUT * k, x = g + clamp(t / getDur(), 0, 1) * (tlW - g);
+  tlx.strokeStyle = '#ff4d3a'; tlx.lineWidth = Math.max(1, 1.5 * k); tlx.beginPath(); tlx.moveTo(x, 0); tlx.lineTo(x, tlH); tlx.stroke();
+  tlx.fillStyle = '#ff4d3a'; tlx.beginPath(); tlx.moveTo(x - 4 * k, 0); tlx.lineTo(x + 4 * k, 0); tlx.lineTo(x, 7 * k); tlx.fill();
+}
+let tlDrag = false;
+const tlSeek = e => { if (!hasVideo) return; const r = tl.getBoundingClientRect(), gf = (TL_GUT * (tlH / 215)) / tlW, fx = (e.clientX - r.left) / r.width; video.currentTime = getStart() + clamp((fx - gf) / (1 - gf), 0, 0.999) * getDur(); };
+tl.addEventListener('pointerdown', e => { tlDrag = true; tl.setPointerCapture(e.pointerId); tlSeek(e); }); tl.addEventListener('pointermove', e => { if (tlDrag) tlSeek(e); }); tl.addEventListener('pointerup', () => tlDrag = false);
+addEventListener('resize', sizeTimeline);
+
+// ---------------------------------------------------------------- module list (left) + inspector panes (right)
+const MODS = [
+  ['ИСТОЧНИК', [['source', 'Видео', 'p-source', () => hasVideo, null, () => hasVideo ? fmtT(getDur()) : '—'], ['audio', 'Звук и ритм', 'p-audio', () => AV.on, () => $('audOn').click(), () => AU ? AU.bpm.toFixed(0) + ' BPM' : 'нет звука']]],
+  ['РЕЖИССЁР', [['auto', 'Авто-режиссёр', 'p-auto', () => autoOn, () => setAuto(!autoOn), () => autoOn ? `секция ${Math.max(1, curSec + 1)}/${planSecs.length}` : 'ручной']]],
+  ['ОБЛАКО ТОЧЕК', [['cloud', 'Облако и глубина', 'p-cloud', () => ly('cloud'), () => toggleLayer('cloud'), () => $('colorMode').selectedOptions[0].textContent], ['scene', 'Сцена', 'p-scene', () => 1, null, () => $('scenario').selectedOptions[0].textContent.split(' (')[0]]]],
+  ['ЭФФЕКТЫ', [['fxPulse', 'Пульсация', 'p-fxPulse'], ['fxWave', 'Волны', 'p-fxWave'], ['fxMag', 'Магнит', 'p-fxMag'], ['fxTurb', 'Турбулентность', 'p-fxTurb'], ['fxScan', 'Скан-линия', 'p-fxScan']].map(([id, n, pane]) => [id, n, pane, () => fxOn[id] ? 1 : 0, () => { if (autoOn) setAuto(false); fxOn[id] = !fxOn[id]; applyFx(id); }, () => fxOn[id] ? f2(+$(id).value) : 'выкл'])],
+  ['ГРАФИКА', [['gfx', 'Цвет и наложение', 'p-gfx', () => 1, null, () => $('geoColor').selectedOptions[0].textContent],
+    ['nodes', 'Узлы и фигуры', 'p-nodes', () => ly('nodes'), () => toggleLayer('nodes'), () => $('nShape').selectedOptions[0].textContent],
+    ['links', 'Связи', 'p-links', () => ly('links'), () => toggleLayer('links'), () => $('lMode').selectedOptions[0].textContent.split(' (')[0]],
+    ['dither', 'Дизеринг-печать', 'p-dither', () => ly('dither'), () => toggleLayer('dither'), () => $('dAlgo').selectedOptions[0].textContent.split(' (')[0]],
+    ['curtain', 'Спектральная завеса', 'p-curtain', () => ly('curtain'), () => toggleLayer('curtain'), () => $('cDir').selectedOptions[0].textContent],
+    ['plot', 'Плоттер-линии', 'p-plot', () => ly('plot'), () => toggleLayer('plot'), () => num('pLines') + ' линий'],
+    ['glyph', 'Глифы (ASCII)', 'p-glyph', () => ly('glyph'), () => toggleLayer('glyph'), () => num('gCols') + ' кол.'],
+    ['glitch', 'Глитч', 'p-glitch', () => ly('glitch'), () => toggleLayer('glitch'), () => AV.on ? 'по ударам' : 'по таймеру']]],
+  ['КАМЕРА И МЕТКИ', [['camera', 'Камера', 'p-camera', () => 1, null, () => $('angles').textContent.split(' · ')[0]], ['track', 'Трек-точки', 'p-track', () => +$('tCount').value > 0 ? 1 : 0, null, () => $('tCount').value + ' шт.']]],
+  ['ВЫВОД', [['export', 'Экспорт MP4', 'p-export', () => 1, null, () => $('format').selectedOptions[0].textContent.split(' · ')[0]]]],
+];
+const modEls = {};
+(function buildNav(){
+  const nav = $('mods');
+  MODS.forEach(([g, items]) => {
+    const h = document.createElement('div'); h.className = 'mg'; h.textContent = g; nav.appendChild(h);
+    items.forEach(([id, label, pane, on, tog, sum]) => {
+      const b = document.createElement('div'); b.className = 'mod'; b.dataset.pane = pane; b.tabIndex = 0; b.setAttribute('role', 'button');
+      b.innerHTML = `<i class="led${tog ? ' tg' : ''}" ${tog ? 'title="Включить / выключить"' : ''}></i><span class="mn">${label}</span><em></em>`;
+      b.addEventListener('click', e => { if (e.target.classList.contains('led') && tog) { e.stopPropagation(); tog(); } showPane(pane); });
+      b.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); showPane(pane); } });
+      nav.appendChild(b); modEls[id] = {el: b, led: b.querySelector('.led'), em: b.querySelector('em'), on, sum};
+    });
+  });
+})();
+function showPane(id){
+  document.querySelectorAll('.pane').forEach(p => p.hidden = p.id !== id);
+  document.querySelectorAll('.mod').forEach(m => m.classList.toggle('sel', m.dataset.pane === id));
+  const sel = document.querySelector('.mod.sel'); if (sel && sel.scrollIntoView) sel.scrollIntoView({block: 'nearest', inline: 'nearest'});
+}
+let navTick = 0;
+function refreshNav(){
+  if (++navTick % 6) return;
+  Object.values(modEls).forEach(m => { const v = m.on ? +m.on() : 1; m.led.style.setProperty('--a', v.toFixed(2)); m.led.classList.toggle('lit', v > 0.5); m.el.classList.toggle('off', v < 0.05); const sm = m.sum ? m.sum() : ''; if (m.em.textContent !== sm) m.em.textContent = sm; });
+  document.querySelectorAll('.sw[data-ly]').forEach(b => { const on = ly(b.dataset.ly) > 0.5; if ((b.getAttribute('aria-pressed') === 'true') !== on) { b.setAttribute('aria-pressed', on); b.textContent = on ? 'вкл' : 'выкл'; } });
+  const cur = hasVideo ? clamp(video.currentTime - getStart(), 0, getDur()) : 0, tc = v => `${Math.floor(v / 60)}:${(v % 60).toFixed(1).padStart(4, '0')}`; $('tcode').textContent = `${tc(cur)} / ${tc(getDur())}`;
+}
+showPane('p-auto');
 // ---------------------------------------------------------------- preview loop
 let needCpu = true;
 function frame(){
@@ -639,11 +1012,12 @@ function frame(){
     if (playing && video.currentTime >= st + D - 0.02) video.currentTime = st;
     const t = clamp(video.currentTime - st, 0, D);
     if (playing) $('time').value = (t / D).toFixed(3);
-    updateCam(); applyScene(t);
+    updateCam(); applyScene(t); applyAuto(t); applyAudio(t);
     tex.needsUpdate = true;
     if (tracked.length || needCpu) updateCpu();
-    if ($('cloudOn').checked) renderer.render(scene, camera);
+    if (ly('cloud') > 0.01) renderer.render(scene, camera);
     composeFrame(vctx, view.width, view.height); drawHud(hctx, hud.width, hud.height);
+    drawTimeline(t); refreshNav();
   }
   requestAnimationFrame(frame);
 }
@@ -661,8 +1035,8 @@ function seekTo(t){
   });
 }
 function renderAt(t, fw, fh, comp, cctx){
-  applyScene(t); tex.needsUpdate = true; updateCpu();
-  if ($('cloudOn').checked) renderer.render(scene, camera);
+  applyScene(t); applyAuto(t); applyAudio(t); tex.needsUpdate = true; updateCpu();
+  if (ly('cloud') > 0.01) renderer.render(scene, camera);
   composeFrame(cctx, fw, fh);
   drawHud(hudCtx, fw, fh); cctx.drawImage(hudOff, 0, 0);
 }
@@ -688,7 +1062,16 @@ async function runExport(){
   try {
     setRenderSize(fw, fh); fitCamera();
     const target = new Mp4Muxer.ArrayBufferTarget();
-    const muxer = new Mp4Muxer.Muxer({target, video: {codec: pc.mux, width: fw, height: fh, frameRate: fps}, fastStart: 'in-memory'});
+    let audioCfg = null, audioMux = 'aac';
+    if ($('expAud').checked && audioBuf && window.AudioEncoder) {
+      for (const [codec, mux] of [['mp4a.40.2', 'aac'], ['opus', 'opus']]) {       // AAC plays everywhere; Opus-in-MP4 only if the browser cannot encode AAC
+        const c = {codec, sampleRate: audioBuf.sampleRate, numberOfChannels: Math.min(2, audioBuf.numberOfChannels), bitrate: 192000};
+        try { if ((await AudioEncoder.isConfigSupported(c)).supported) { audioCfg = c; audioMux = mux; break; } } catch (e) {}
+      }
+    }
+    const mopts = {target, video: {codec: pc.mux, width: fw, height: fh, frameRate: fps}, fastStart: 'in-memory'};
+    if (audioCfg) mopts.audio = {codec: audioMux, numberOfChannels: audioCfg.numberOfChannels, sampleRate: audioCfg.sampleRate};
+    const muxer = new Mp4Muxer.Muxer(mopts);
     let err = null;
     const enc = new VideoEncoder({output: (c, m) => muxer.addVideoChunk(c, m), error: e => err = e});
     enc.configure(pc.config);
@@ -702,22 +1085,46 @@ async function runExport(){
       if (i % 2 === 0) { progress(i / frames); const el = (performance.now() - t0) / 1000, eta = i > 20 ? Math.round(el / i * (frames - i)) : null;
         status(`Рендер: кадр ${i + 1} из ${frames} (${fw}×${fh})` + (eta !== null ? ` · осталось ~${eta >= 90 ? Math.round(eta / 60) + ' мин' : eta + ' с'}. Не закрывай и не сворачивай вкладку.` : '')); await tick(); }
     }
-    await enc.flush(); enc.close(); muxer.finalize();
+    await enc.flush(); enc.close();
+    if (audioCfg) {
+      status('Кодирую звук…');
+      let aerr = null; const aenc = new AudioEncoder({output: (c, m) => muxer.addAudioChunk(c, m), error: e => aerr = e}); aenc.configure(audioCfg);
+      const sr = audioBuf.sampleRate, ch = audioCfg.numberOfChannels, a0 = Math.round(st * sr), a1 = Math.min(audioBuf.length, Math.round((st + D) * sr)), CH = 4096;
+      for (let o = a0; o < a1; o += CH) {
+        if (aerr) throw aerr;
+        const n = Math.min(CH, a1 - o), data = new Float32Array(n * ch);
+        for (let c = 0; c < ch; c++) data.set(audioBuf.getChannelData(c).subarray(o, o + n), c * n);
+        aenc.encode(new AudioData({format: 'f32-planar', sampleRate: sr, numberOfFrames: n, numberOfChannels: ch, timestamp: Math.round((o - a0) / sr * 1e6), data}));
+        while (aenc.encodeQueueSize > 24) await new Promise(r => setTimeout(r, 4));
+      }
+      await aenc.flush(); aenc.close(); if (aerr) throw aerr;
+    }
+    muxer.finalize();
     if (err) throw err;
-    const blob = new Blob([target.buffer], {type: 'video/mp4'}), name = `video-field_${fw}x${fh}_${D}s.mp4`;
-    const url = URL.createObjectURL(blob), a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
-    const link = $('dlLink'); link.href = url; link.download = name; link.textContent = `⬇ ${name} · ${(blob.size / 1048576).toFixed(1)} МБ`; link.hidden = false;
-    progress(1); status('Готово. Если файл не скачался сам — нажми ссылку ниже.');
+    lastBlob = new Blob([target.buffer], {type: 'video/mp4'}); lastName = `video-field_${fw}x${fh}_${D}s.mp4`;
+    const link = $('dlLink'); link.textContent = `⬇ Сохранить ${lastName} · ${(lastBlob.size / 1048576).toFixed(1)} МБ`; link.hidden = false;
+    progress(1); status('Готово' + (audioCfg ? (audioMux === 'aac' ? ' (со звуком)' : ' (со звуком Opus: браузер не умеет AAC)') : '') + '. Нажми кнопку «Сохранить» рядом.');
   } catch (e) {
     status('Не получилось: ' + (e && e.message || e));
   } finally {
     exporting = false; $('render').disabled = false; layoutStage(); await seekTo(st);
-    if (wasPlaying) video.play().catch(() => {});
+    if (wasPlaying) playVideo();
   }
 }
 $('render').onclick = runExport;
+let lastBlob = null, lastName = '';
+$('dlLink').onclick = async () => {
+  if (!lastBlob) return;
+  let d = null; try { d = window.claude && await window.claude.use('downloads'); } catch (e) {}
+  if (d) {
+    try { await d.save({filename: lastName, data: lastBlob}); status('Файл сохранён.'); }
+    catch (e) { status(e && e.code === 'declined' ? 'Сохранение отменено.' : 'Не удалось сохранить: ' + (e && (e.message || e.code))); }
+    return;
+  }
+  const url = URL.createObjectURL(lastBlob), a = document.createElement('a'); a.href = url; a.download = lastName; document.body.appendChild(a); a.click(); a.remove();
+};
 
 // debug hook for automated tests
 window.__vf = {video, U, get count(){ return count; }, get tracked(){ return tracked; }};
-layoutStage(); requestAnimationFrame(frame);
+layoutStage(); sizeTimeline(); navTick = 5; refreshNav(); requestAnimationFrame(frame);
 })();
