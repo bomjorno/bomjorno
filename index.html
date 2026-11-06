@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>VIDEO·FIELD — видео в облако точек</title>
+<meta name="description" content="Загрузи видео до 20 секунд, получи облако точек с эффектами и скачай MP4 до 2K. Всё считается в браузере.">
+<style>
+:root{--bg:#05070a;--panel:rgba(10,14,18,.92);--line:rgba(160,220,235,.16);--fg:#e6f4f7;--muted:#7f9aa2;--accent:#3fe3f2;--ink:#001014;
+  --mono:ui-monospace,"JetBrains Mono",Menlo,Consolas,monospace;color-scheme:dark}
+[hidden]{display:none!important}
+*,*::before,*::after{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--fg);font:12px var(--mono);overflow:hidden}
+#stageWrap{position:fixed;inset:0 320px 0 0;display:flex;align-items:center;justify-content:center;padding:16px}
+#stage{position:relative;background:#000;outline:1px solid var(--line);overflow:hidden}
+#stage canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none}
+#hud{pointer-events:none}
+#empty{position:absolute;inset:0;display:flex;flex-direction:column;gap:10px;align-items:center;justify-content:center;text-align:center;color:var(--muted);pointer-events:none;padding:20px}
+#empty b{color:var(--accent);font-size:15px;letter-spacing:.06em}
+#panel{position:fixed;top:0;right:0;bottom:0;width:320px;overflow:auto;background:var(--panel);border-left:1px solid var(--line);padding:14px;display:flex;flex-direction:column;gap:12px}
+h1{font-size:15px;letter-spacing:.08em;margin:0;font-weight:800}h1 span{color:var(--accent)}
+.sub{color:var(--muted);font-size:10.5px;line-height:1.5;margin:0}
+.grp{display:flex;flex-direction:column;gap:8px;padding-top:10px;border-top:1px solid var(--line)}
+.lbl{font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);cursor:pointer;display:flex;justify-content:space-between;user-select:none}
+.lbl::after{content:"▾"}.grp.collapsed .lbl::after{content:"▸"}.grp.collapsed>:not(.lbl){display:none!important}
+.row{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+button,.filebtn,select{font:inherit;font-size:11px;color:var(--fg);background:rgba(255,255,255,.04);border:1px solid var(--line);border-radius:8px;padding:7px 10px;cursor:pointer}
+select{flex:1;min-width:0}button:hover,.filebtn:hover{border-color:var(--accent)}button:disabled{opacity:.4;cursor:default}
+button.on{background:var(--accent);color:var(--ink);border-color:var(--accent);font-weight:600}
+button.big{flex:1;padding:12px;letter-spacing:.06em;font-weight:600}
+.filebtn input{display:none}.filebtn.main{flex:1;text-align:center;padding:12px;border-color:var(--accent);color:var(--accent)}
+.slider{display:grid;grid-template-columns:96px 1fr 44px;align-items:center;gap:8px}.slider output{text-align:right;color:var(--accent)}
+.field{display:grid;grid-template-columns:96px 1fr;align-items:center;gap:8px}
+input[type=range]{width:100%;accent-color:var(--accent)}input[type=checkbox]{accent-color:var(--accent)}
+label.chk{display:flex;align-items:center;gap:6px;cursor:pointer}
+details{border:1px solid var(--line);border-radius:8px;padding:7px 9px}summary{cursor:pointer}summary.act{color:var(--accent)}
+details>*:not(summary){margin-top:8px}
+.sw{padding:2px 7px;font-size:9.5px;text-transform:uppercase;margin-right:6px;min-width:46px}
+.sw[aria-pressed=true]{background:var(--accent);color:var(--ink);border-color:var(--accent)}
+.cams{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.cams button{padding:7px 2px}
+.joyrow{display:flex;gap:12px;align-items:center}
+#joy{position:relative;width:104px;height:104px;flex:none;border:1px solid var(--line);border-radius:14px;touch-action:none;cursor:grab;background:radial-gradient(circle,rgba(63,227,242,.1),transparent 70%)}
+#knob{position:absolute;width:22px;height:22px;margin:-11px 0 0 -11px;border-radius:50%;background:var(--accent);box-shadow:0 0 12px rgba(63,227,242,.6)}
+#angles{color:var(--accent)}
+input[type=color]{width:100%;height:30px;padding:2px;background:transparent;border:1px solid var(--line);border-radius:8px}
+#bar{height:4px;background:var(--line);border-radius:2px;overflow:hidden}#bar i{display:block;height:100%;width:0;background:var(--accent)}
+a.dl{display:block;text-align:center;padding:9px;border:1px dashed var(--accent);border-radius:8px;color:var(--accent);text-decoration:none;word-break:break-all}
+#drop{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;font-size:20px;color:var(--accent);background:rgba(0,0,0,.65);border:2px dashed var(--accent);pointer-events:none;z-index:9}
+@media (max-width:760px){
+  #stageWrap{inset:0 0 50% 0;padding:8px}
+  #panel{top:50%;width:auto;left:0;border-left:0;border-top:1px solid var(--line)}
+  .slider{grid-template-columns:1fr 44px}.slider>span{grid-column:1/-1;color:var(--muted)}
+  .field{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+<div id="stageWrap"><div id="stage"><canvas id="gl"></canvas><canvas id="hud"></canvas>
+  <div id="empty"><b>VIDEO·FIELD</b><span>Перетащи видео сюда или нажми «Загрузить видео».<br>До 20 секунд, до 2K. Файл никуда не отправляется.</span></div>
+</div></div>
+
+<aside id="panel">
+  <div><h1>VIDEO<span>·</span>FIELD</h1>
+    <p class="sub">Видео превращается в живое облако точек. Настрой эффекты и камеру, скачай MP4 до 2K. Всё считается у тебя в браузере.</p></div>
+
+  <div class="grp"><div class="lbl">Видео</div>
+    <div class="row"><label class="filebtn main">Загрузить видео<input id="vidFile" type="file" accept="video/*"></label></div>
+    <p class="sub" id="vinfo">Файл не выбран.</p>
+    <div class="slider"><span>Начало</span><input id="tStart" type="range" min="0" max="0" step="0.1" value="0"><output id="tStartO">0 с</output></div>
+    <div class="slider"><span>Длительность</span><input id="dur" type="range" min="1" max="20" step="0.1" value="6"><output id="durO"></output></div>
+    <div class="row"><button id="play" class="on">❚❚ Пауза</button><input id="time" type="range" min="0" max="1" step="0.001" value="0" style="flex:1" aria-label="Время"></div>
+  </div>
+
+  <div class="grp"><div class="lbl">Облако</div>
+    <label class="chk"><input id="bgRemove" type="checkbox" checked> Убрать фон (цвет по углам кадра)</label>
+    <div class="slider"><span>Порог фона</span><input id="bgThr" type="range" min="0.02" max="0.5" step="0.01" value="0.16"><output id="bgThrO"></output></div>
+    <div class="slider"><span>Плотность</span><input id="density" type="range" min="160" max="720" step="20" value="360"><output id="densityO"></output></div>
+    <div class="slider"><span>Глубина</span><input id="depth" type="range" min="0" max="2.5" step="0.05" value="1"><output id="depthO"></output></div>
+    <div class="slider"><span>Размер точки</span><input id="size" type="range" min="0.4" max="3" step="0.05" value="1.1"><output id="sizeO"></output></div>
+    <div class="field"><span>Цвет</span><select id="colorMode"><option value="0">Цвет видео</option><option value="1" selected>Моно</option><option value="2">Циан</option><option value="3">Красный</option></select></div>
+  </div>
+
+  <div class="grp"><div class="lbl">Сцена</div>
+    <div class="field"><span>Сценарий</span><select id="scenario">
+      <option value="float" selected>Парение (без разлёта)</option><option value="static">Статично</option>
+      <option value="inout">Собраться и рассыпаться</option><option value="outin">Рассыпаться и собраться</option>
+      <option value="out">Рассыпаться</option><option value="in">Сборка из пыли</option></select></div>
+    <div class="slider"><span>Разлёт</span><input id="scatter" type="range" min="0.1" max="1" step="0.01" value="0.8"><output id="scatterO"></output></div>
+    <div class="slider"><span>Парение</span><input id="float" type="range" min="0" max="1" step="0.05" value="0.3"><output id="floatO"></output></div>
+    <div class="slider"><span>Ветер</span><input id="wind" type="range" min="0" max="2" step="0.05" value="1"><output id="windO"></output></div>
+    <div class="slider"><span>Облёт камеры</span><input id="orbit" type="range" min="0" max="1" step="0.05" value="0.35"><output id="orbitO"></output></div>
+    <div class="slider"><span>Скорость облёта</span><input id="orbitN" type="range" min="1" max="4" step="1" value="1"><output id="orbitNO"></output></div>
+  </div>
+
+  <div class="grp" id="fxGrp"><div class="lbl">Эффекты</div>
+    <p class="sub">Скорости заданы в циклах за длительность клипа, поэтому в конце видео эффекты замыкаются без шва.</p>
+    <details open><summary><button class="sw" data-fx="fxPulse" aria-pressed="false">выкл</button>Пульсация</summary>
+      <div class="slider"><span>Сила</span><input id="fxPulse" type="range" min="0" max="1" step="0.05" value="0.5"><output></output></div>
+      <div class="slider"><span>Скорость</span><input id="fxPulseN" type="range" min="1" max="12" step="1" value="3"><output></output></div></details>
+    <details><summary><button class="sw" data-fx="fxWave" aria-pressed="false">выкл</button>Волны</summary>
+      <div class="slider"><span>Сила</span><input id="fxWave" type="range" min="0" max="1" step="0.05" value="0.5"><output></output></div>
+      <div class="field"><span>Форма</span><select id="fxWaveT"><option value="0">Круги от центра</option><option value="1">По горизонтали</option><option value="2">По вертикали</option><option value="3">Сетка</option></select></div>
+      <div class="slider"><span>Частота</span><input id="fxWaveL" type="range" min="0.5" max="6" step="0.25" value="1.5"><output></output></div>
+      <div class="slider"><span>Скорость</span><input id="fxWaveN" type="range" min="1" max="6" step="1" value="1"><output></output></div></details>
+    <details><summary><button class="sw" data-fx="fxMag" aria-pressed="false">выкл</button>Магнит</summary>
+      <div class="slider"><span>Сила</span><input id="fxMag" type="range" min="0" max="1" step="0.05" value="0.6"><output></output></div>
+      <div class="field"><span>Полярность</span><select id="magPol"><option value="1">Отталкивает</option><option value="-1">Притягивает</option></select></div>
+      <div class="slider"><span>Радиус</span><input id="magR" type="range" min="5" max="60" step="1" value="22"><output></output></div>
+      <div class="slider"><span>Скорость</span><input id="magN" type="range" min="1" max="10" step="1" value="3"><output></output></div>
+      <div class="field"><span>Траектория</span><select id="magPath"><option value="eight">Восьмёрка</option><option value="circle">Круг</option><option value="sweep">Слева направо</option><option value="center">В центре</option></select></div>
+      <label class="chk"><input id="magShow" type="checkbox"> Показать магнит (попадёт в видео)</label></details>
+    <details><summary><button class="sw" data-fx="fxTurb" aria-pressed="false">выкл</button>Турбулентность</summary>
+      <div class="slider"><span>Сила</span><input id="fxTurb" type="range" min="0" max="1" step="0.05" value="0.4"><output></output></div>
+      <div class="slider"><span>Скорость</span><input id="fxTurbN" type="range" min="1" max="6" step="1" value="1"><output></output></div></details>
+    <details><summary><button class="sw" data-fx="fxScan" aria-pressed="false">выкл</button>Скан-линия</summary>
+      <div class="slider"><span>Сила</span><input id="fxScan" type="range" min="0" max="1" step="0.05" value="0.7"><output></output></div>
+      <div class="slider"><span>Ширина</span><input id="fxScanW" type="range" min="0.3" max="4" step="0.1" value="1"><output></output></div>
+      <div class="slider"><span>Скорость</span><input id="fxScanN" type="range" min="1" max="4" step="1" value="1"><output></output></div></details>
+  </div>
+
+  <div class="grp"><div class="lbl">Камера</div>
+    <div class="cams">
+      <button data-y="0" data-x="0">Фронт</button><button data-y="45" data-x="0">Слева 45°</button><button data-y="-45" data-x="0">Справа 45°</button>
+      <button data-y="0" data-x="-35">Сверху</button><button data-y="0" data-x="35">Снизу</button><button data-y="35" data-x="-25">3/4 сверху</button>
+    </div>
+    <div class="joyrow"><div id="joy" role="slider" aria-label="Ракурс камеры" tabindex="0"><b id="knob"></b></div>
+      <div><output id="angles">Y 0° · X 0°</output><p class="sub">Веди джойстик или тяни картинку. Двойной клик — фронт.</p></div></div>
+    <div class="slider"><span>Приближение</span><input id="zoom" type="range" min="0.6" max="2.5" step="0.05" value="1"><output></output></div>
+  </div>
+
+  <div class="grp"><div class="lbl">Трек-точки</div>
+    <div class="slider"><span>Количество</span><input id="tCount" type="range" min="0" max="40" step="1" value="9"><output></output></div>
+    <div class="field"><span>Ставить на</span><select id="tPick"><option value="even">Равномерно</option><option value="bright">Светлые места</option><option value="dark">Тёмные места</option><option value="near">Ближние по глубине</option><option value="far">Дальние по глубине</option><option value="edge">Контуры</option><option value="color">Выбранный цвет</option></select></div>
+    <div class="field" id="pickColorRow" hidden><span>Искать цвет</span><input id="tPickColor" type="color" value="#ff3b30"></div>
+    <div class="field"><span>Вид</span><select id="tStyle"><option value="brackets">Уголки</option><option value="cross">Перекрестье</option><option value="ring">Кольцо</option><option value="square">Квадрат</option><option value="dot">Точка</option></select></div>
+    <div class="slider"><span>Размер</span><input id="tSize" type="range" min="3" max="16" step="1" value="6"><output></output></div>
+    <div class="field"><span>Подписи</span><select id="tLabel"><option value="xyz">Номер + XYZ</option><option value="depth">Номер + глубина</option><option value="lum">Номер + яркость</option><option value="hex">Номер + HEX</option><option value="num">Только номер</option><option value="none">Без подписи</option></select></div>
+    <div class="field"><span>Связи</span><select id="tLinks"><option value="chain">Цепочка</option><option value="net">Сеть (2 ближайших)</option><option value="radius">По дистанции</option><option value="hub">Все к одной</option><option value="all">Все со всеми</option><option value="none">Нет</option></select></div>
+    <div class="slider"><span>Яркость связей</span><input id="lAlpha" type="range" min="0.05" max="1" step="0.05" value="0.35"><output></output></div>
+    <div class="field"><span>Цвет меток</span><select id="tColor"><option value="white">Белый</option><option value="cyan">Циан</option><option value="pixel">Цвет пикселя</option></select></div>
+    <div class="row"><button id="reshuffle">Перемешать точки</button><label class="chk"><input id="frameOn" type="checkbox" checked> Рамка и статус</label></div>
+  </div>
+
+  <div class="grp"><div class="lbl">Экспорт</div>
+    <div class="field"><span>Формат</span><select id="format">
+      <option value="1080x1920">9:16 · 1080×1920</option><option value="1440x2560">9:16 · 1440×2560 (2K)</option>
+      <option value="1080x1350">4:5 · 1080×1350</option><option value="1440x1800">4:5 · 1440×1800</option>
+      <option value="1080x1080">1:1 · 1080×1080</option><option value="1440x1440">1:1 · 1440×1440</option>
+      <option value="1920x1080">16:9 · 1920×1080</option><option value="2560x1440" selected>16:9 · 2560×1440 (2K)</option>
+      <option value="src">Как исходное видео (до 2560 по длинной)</option></select></div>
+    <div class="field"><span>Кадров в сек</span><select id="fps"><option value="24">24</option><option value="30" selected>30</option><option value="60">60</option></select></div>
+    <div class="field"><span>Качество</span><select id="quality"><option value="0.12">Обычное</option><option value="0.2" selected>Высокое</option><option value="0.3">Максимум</option></select></div>
+    <div class="row"><button id="render" class="big" disabled>СКАЧАТЬ MP4</button></div>
+    <div id="bar"><i></i></div>
+    <p class="sub" id="status">Рендер покадровый: без пропусков, точно в длительность клипа. Звук оригинала не переносится.</p>
+    <a id="dlLink" class="dl" hidden></a>
+  </div>
+</aside>
+<div id="drop" hidden>Отпусти видео</div>
+
+<script src="vendor/three.min.js"></script>
+<script src="vendor/mp4-muxer.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
