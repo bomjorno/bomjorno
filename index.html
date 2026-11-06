@@ -16,6 +16,7 @@ body{margin:0;background:var(--bg);color:var(--fg);font:12px var(--mono);overflo
 #stage{position:relative;background:#000;outline:1px solid var(--line);overflow:hidden}
 #stage canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none}
 #hud{pointer-events:none}
+#gl{visibility:hidden}
 #empty{position:absolute;inset:0;display:flex;flex-direction:column;gap:10px;align-items:center;justify-content:center;text-align:center;color:var(--muted);pointer-events:none;padding:20px}
 #empty b{color:var(--accent);font-size:15px;letter-spacing:.06em}
 #panel{position:fixed;top:0;right:0;bottom:0;width:320px;overflow:auto;background:var(--panel);border-left:1px solid var(--line);padding:14px;display:flex;flex-direction:column;gap:12px}
@@ -56,7 +57,7 @@ a.dl{display:block;text-align:center;padding:9px;border:1px dashed var(--accent)
 </style>
 </head>
 <body>
-<div id="stageWrap"><div id="stage"><canvas id="gl"></canvas><canvas id="hud"></canvas>
+<div id="stageWrap"><div id="stage"><canvas id="gl"></canvas><canvas id="view"></canvas><canvas id="hud"></canvas>
   <div id="empty"><b>VIDEO·FIELD</b><span>Перетащи видео сюда или нажми «Загрузить видео».<br>До 20 секунд, до 2K. Файл никуда не отправляется.</span></div>
 </div></div>
 
@@ -92,6 +93,52 @@ a.dl{display:block;text-align:center;padding:9px;border:1px dashed var(--accent)
     <div class="slider"><span>Ветер</span><input id="wind" type="range" min="0" max="2" step="0.05" value="1"><output id="windO"></output></div>
     <div class="slider"><span>Облёт камеры</span><input id="orbit" type="range" min="0" max="1" step="0.05" value="0.35"><output id="orbitO"></output></div>
     <div class="slider"><span>Скорость облёта</span><input id="orbitN" type="range" min="1" max="4" step="1" value="1"><output id="orbitNO"></output></div>
+  </div>
+
+
+  <div class="grp" id="lyGrp"><div class="lbl">Слои графики</div>
+    <p class="sub">Контуры, узлы, связи, печать и линии считаются из каждого кадра видео. Слои можно включать вместе с облаком точек или без него.</p>
+    <label class="chk"><input id="cloudOn" type="checkbox" checked> Облако точек</label>
+    <div class="slider"><span>Видео подложкой</span><input id="underlay" type="range" min="0" max="1" step="0.05" value="0"><output></output></div>
+    <div class="field"><span>Цвет графики</span><select id="geoColor"><option value="source">Цвет видео</option><option value="cyan">Циан</option><option value="solar">Солнечный</option><option value="mono">Моно</option><option value="violet">Фиолетовый</option></select></div>
+    <div class="field"><span>Наложение</span><select id="geoBlend"><option value="source-over">Обычное</option><option value="screen">Screen</option><option value="multiply">Multiply</option><option value="overlay">Overlay</option><option value="soft-light">Soft light</option><option value="hard-light">Hard light</option><option value="color-dodge">Color dodge</option><option value="color-burn">Color burn</option><option value="lighten">Lighten</option><option value="darken">Darken</option><option value="difference">Difference</option><option value="exclusion">Exclusion</option><option value="luminosity">Luminosity</option></select></div>
+    <details><summary><button class="sw" data-ly="nodes" aria-pressed="false">выкл</button>Узлы и фигуры</summary>
+      <div class="slider"><span>Плотность</span><input id="nDens" type="range" min="30" max="600" step="10" value="140"><output></output></div>
+      <div class="slider"><span>Порог контура</span><input id="nThr" type="range" min="0" max="0.9" step="0.02" value="0.18"><output></output></div>
+      <div class="field"><span>Форма</span><select id="nShape"><option value="bracket">Уголки</option><option value="circle">Круг</option><option value="square">Квадрат</option><option value="diamond">Ромб</option><option value="cross">Плюс</option><option value="mixed">Смесь</option></select></div>
+      <div class="slider"><span>Мин. размер</span><input id="nMin" type="range" min="2" max="40" step="1" value="6"><output></output></div>
+      <div class="slider"><span>Макс. размер</span><input id="nMax" type="range" min="6" max="120" step="1" value="34"><output></output></div>
+      <div class="slider"><span>Толщина</span><input id="nStroke" type="range" min="0.5" max="6" step="0.25" value="1.5"><output></output></div>
+      <label class="chk"><input id="nLabels" type="checkbox"> Подписи с координатами</label></details>
+    <details><summary><button class="sw" data-ly="links" aria-pressed="false">выкл</button>Связи</summary>
+      <div class="field"><span>Способ</span><select id="lMode"><option value="delaunay">Delaunay (треугольная сеть)</option><option value="proximity">Соседи</option><option value="chain">Цепочка по контуру</option><option value="radial">Радиально из главного узла</option><option value="hybrid">Комбинация</option></select></div>
+      <div class="slider"><span>Макс. дистанция</span><input id="lDist" type="range" min="2" max="60" step="1" value="16"><output></output></div>
+      <div class="slider"><span>Уверенность</span><input id="lConf" type="range" min="0" max="0.9" step="0.02" value="0.15"><output></output></div>
+      <div class="slider"><span>Яркость</span><input id="lOp" type="range" min="0.05" max="1" step="0.05" value="0.55"><output></output></div>
+      <div class="slider"><span>Толщина</span><input id="lW" type="range" min="0.3" max="4" step="0.1" value="1"><output></output></div></details>
+    <details><summary><button class="sw" data-ly="dither" aria-pressed="false">выкл</button>Дизеринг-печать</summary>
+      <div class="field"><span>Алгоритм</span><select id="dAlgo"><option value="atkinson">Atkinson (органичная точка)</option><option value="fs">Floyd–Steinberg (плотный)</option><option value="bayer">Bayer 4×4 (упорядоченный)</option><option value="noise">Шум (стохастический)</option></select></div>
+      <div class="slider"><span>Зерно, px</span><input id="dPitch" type="range" min="1" max="32" step="1" value="4"><output></output></div>
+      <div class="slider"><span>Порог</span><input id="dThr" type="range" min="0.2" max="0.8" step="0.01" value="0.5"><output></output></div>
+      <div class="slider"><span>Контраст</span><input id="dCon" type="range" min="0.5" max="3" step="0.05" value="1.2"><output></output></div>
+      <div class="field"><span>Палитра</span><select id="dPal"><option value="cobalt">Cobalt paper</option><option value="electric">Electric cobalt</option><option value="cyan">Cyan print</option><option value="forest">Forest ink</option><option value="red">Signal red</option><option value="mono">Mono press</option></select></div>
+      <label class="chk"><input id="dInv" type="checkbox"> Инвертировать печать</label>
+      <div class="slider"><span>Прозрачность</span><input id="dOp" type="range" min="0.05" max="1" step="0.05" value="0.9"><output></output></div>
+      <div class="field"><span>Наложение</span><select id="dBlend"><option value="source-over">Обычное</option><option value="screen">Screen</option><option value="multiply">Multiply</option><option value="overlay">Overlay</option><option value="soft-light">Soft light</option><option value="hard-light">Hard light</option><option value="color-dodge">Color dodge</option><option value="lighten">Lighten</option><option value="darken">Darken</option><option value="difference">Difference</option><option value="exclusion">Exclusion</option></select></div></details>
+    <details><summary><button class="sw" data-ly="curtain" aria-pressed="false">выкл</button>Спектральная завеса</summary>
+      <div class="field"><span>Направление</span><select id="cDir"><option value="down">Вниз</option><option value="up">Вверх</option><option value="both">В обе стороны</option></select></div>
+      <div class="slider"><span>Плотность</span><input id="cDens" type="range" min="40" max="400" step="10" value="160"><output></output></div>
+      <div class="slider"><span>Длина, %</span><input id="cLen" type="range" min="5" max="100" step="1" value="40"><output></output></div>
+      <div class="slider"><span>Прозрачность</span><input id="cOp" type="range" min="0.05" max="1" step="0.05" value="0.6"><output></output></div></details>
+    <details><summary><button class="sw" data-ly="plot" aria-pressed="false">выкл</button>Плоттер-линии</summary>
+      <div class="slider"><span>Линий</span><input id="pLines" type="range" min="20" max="240" step="2" value="90"><output></output></div>
+      <div class="slider"><span>Контраст</span><input id="pCon" type="range" min="0.5" max="4" step="0.05" value="1.6"><output></output></div>
+      <div class="slider"><span>Детализация</span><input id="pDef" type="range" min="10" max="100" step="5" value="55"><output></output></div>
+      <label class="chk"><input id="pSingle" type="checkbox" checked> Одна непрерывная линия</label>
+      <div class="slider"><span>Толщина</span><input id="pW" type="range" min="0.3" max="5" step="0.1" value="1.2"><output></output></div>
+      <div class="slider"><span>Движение</span><input id="pAnim" type="range" min="0" max="3" step="0.1" value="0.6"><output></output></div>
+      <div class="slider"><span>Виньетка</span><input id="pVig" type="range" min="0" max="1" step="0.05" value="0"><output></output></div>
+      <div class="field"><span>Цвет линий</span><select id="pCol"><option value="#ffffff">Белый</option><option value="#3fe3f2">Циан</option><option value="#ff4d3a">Красный</option><option value="#2d4bff">Кобальт</option></select></div></details>
   </div>
 
   <div class="grp" id="fxGrp"><div class="lbl">Эффекты</div>

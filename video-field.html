@@ -13,6 +13,7 @@ body{margin:0;background:var(--bg);color:var(--fg);font:12px var(--mono);overflo
 #stage{position:relative;background:#000;outline:1px solid var(--line);overflow:hidden}
 #stage canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none}
 #hud{pointer-events:none}
+#gl{visibility:hidden}
 #empty{position:absolute;inset:0;display:flex;flex-direction:column;gap:10px;align-items:center;justify-content:center;text-align:center;color:var(--muted);pointer-events:none;padding:20px;line-height:1.5}
 #empty b{color:var(--accent);font-size:15px;letter-spacing:.06em}
 #panel{min-height:0;overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:12px;margin-block:12px}
@@ -55,7 +56,7 @@ button.dl{display:block;width:100%;text-align:center;padding:10px;border:1px das
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
 <div id="app">
-<div id="stageWrap"><div id="stage"><canvas id="gl"></canvas><canvas id="hud"></canvas>
+<div id="stageWrap"><div id="stage"><canvas id="gl"></canvas><canvas id="view"></canvas><canvas id="hud"></canvas>
   <div id="empty"><b>VIDEO·FIELD</b><span>Перетащи видео сюда или нажми «Загрузить видео».<br>До 20 секунд, до 2K. Файл никуда не отправляется.</span></div>
 </div></div>
 
@@ -91,6 +92,52 @@ button.dl{display:block;width:100%;text-align:center;padding:10px;border:1px das
     <div class="slider"><span>Ветер</span><input id="wind" type="range" min="0" max="2" step="0.05" value="1"><output id="windO"></output></div>
     <div class="slider"><span>Облёт камеры</span><input id="orbit" type="range" min="0" max="1" step="0.05" value="0.35"><output id="orbitO"></output></div>
     <div class="slider"><span>Скорость облёта</span><input id="orbitN" type="range" min="1" max="4" step="1" value="1"><output id="orbitNO"></output></div>
+  </div>
+
+
+  <div class="grp" id="lyGrp"><div class="lbl">Слои графики</div>
+    <p class="sub">Контуры, узлы, связи, печать и линии считаются из каждого кадра видео. Слои можно включать вместе с облаком точек или без него.</p>
+    <label class="chk"><input id="cloudOn" type="checkbox" checked> Облако точек</label>
+    <div class="slider"><span>Видео подложкой</span><input id="underlay" type="range" min="0" max="1" step="0.05" value="0"><output></output></div>
+    <div class="field"><span>Цвет графики</span><select id="geoColor"><option value="source">Цвет видео</option><option value="cyan">Циан</option><option value="solar">Солнечный</option><option value="mono">Моно</option><option value="violet">Фиолетовый</option></select></div>
+    <div class="field"><span>Наложение</span><select id="geoBlend"><option value="source-over">Обычное</option><option value="screen">Screen</option><option value="multiply">Multiply</option><option value="overlay">Overlay</option><option value="soft-light">Soft light</option><option value="hard-light">Hard light</option><option value="color-dodge">Color dodge</option><option value="color-burn">Color burn</option><option value="lighten">Lighten</option><option value="darken">Darken</option><option value="difference">Difference</option><option value="exclusion">Exclusion</option><option value="luminosity">Luminosity</option></select></div>
+    <details><summary><button class="sw" data-ly="nodes" aria-pressed="false">выкл</button>Узлы и фигуры</summary>
+      <div class="slider"><span>Плотность</span><input id="nDens" type="range" min="30" max="600" step="10" value="140"><output></output></div>
+      <div class="slider"><span>Порог контура</span><input id="nThr" type="range" min="0" max="0.9" step="0.02" value="0.18"><output></output></div>
+      <div class="field"><span>Форма</span><select id="nShape"><option value="bracket">Уголки</option><option value="circle">Круг</option><option value="square">Квадрат</option><option value="diamond">Ромб</option><option value="cross">Плюс</option><option value="mixed">Смесь</option></select></div>
+      <div class="slider"><span>Мин. размер</span><input id="nMin" type="range" min="2" max="40" step="1" value="6"><output></output></div>
+      <div class="slider"><span>Макс. размер</span><input id="nMax" type="range" min="6" max="120" step="1" value="34"><output></output></div>
+      <div class="slider"><span>Толщина</span><input id="nStroke" type="range" min="0.5" max="6" step="0.25" value="1.5"><output></output></div>
+      <label class="chk"><input id="nLabels" type="checkbox"> Подписи с координатами</label></details>
+    <details><summary><button class="sw" data-ly="links" aria-pressed="false">выкл</button>Связи</summary>
+      <div class="field"><span>Способ</span><select id="lMode"><option value="delaunay">Delaunay (треугольная сеть)</option><option value="proximity">Соседи</option><option value="chain">Цепочка по контуру</option><option value="radial">Радиально из главного узла</option><option value="hybrid">Комбинация</option></select></div>
+      <div class="slider"><span>Макс. дистанция</span><input id="lDist" type="range" min="2" max="60" step="1" value="16"><output></output></div>
+      <div class="slider"><span>Уверенность</span><input id="lConf" type="range" min="0" max="0.9" step="0.02" value="0.15"><output></output></div>
+      <div class="slider"><span>Яркость</span><input id="lOp" type="range" min="0.05" max="1" step="0.05" value="0.55"><output></output></div>
+      <div class="slider"><span>Толщина</span><input id="lW" type="range" min="0.3" max="4" step="0.1" value="1"><output></output></div></details>
+    <details><summary><button class="sw" data-ly="dither" aria-pressed="false">выкл</button>Дизеринг-печать</summary>
+      <div class="field"><span>Алгоритм</span><select id="dAlgo"><option value="atkinson">Atkinson (органичная точка)</option><option value="fs">Floyd–Steinberg (плотный)</option><option value="bayer">Bayer 4×4 (упорядоченный)</option><option value="noise">Шум (стохастический)</option></select></div>
+      <div class="slider"><span>Зерно, px</span><input id="dPitch" type="range" min="1" max="32" step="1" value="4"><output></output></div>
+      <div class="slider"><span>Порог</span><input id="dThr" type="range" min="0.2" max="0.8" step="0.01" value="0.5"><output></output></div>
+      <div class="slider"><span>Контраст</span><input id="dCon" type="range" min="0.5" max="3" step="0.05" value="1.2"><output></output></div>
+      <div class="field"><span>Палитра</span><select id="dPal"><option value="cobalt">Cobalt paper</option><option value="electric">Electric cobalt</option><option value="cyan">Cyan print</option><option value="forest">Forest ink</option><option value="red">Signal red</option><option value="mono">Mono press</option></select></div>
+      <label class="chk"><input id="dInv" type="checkbox"> Инвертировать печать</label>
+      <div class="slider"><span>Прозрачность</span><input id="dOp" type="range" min="0.05" max="1" step="0.05" value="0.9"><output></output></div>
+      <div class="field"><span>Наложение</span><select id="dBlend"><option value="source-over">Обычное</option><option value="screen">Screen</option><option value="multiply">Multiply</option><option value="overlay">Overlay</option><option value="soft-light">Soft light</option><option value="hard-light">Hard light</option><option value="color-dodge">Color dodge</option><option value="lighten">Lighten</option><option value="darken">Darken</option><option value="difference">Difference</option><option value="exclusion">Exclusion</option></select></div></details>
+    <details><summary><button class="sw" data-ly="curtain" aria-pressed="false">выкл</button>Спектральная завеса</summary>
+      <div class="field"><span>Направление</span><select id="cDir"><option value="down">Вниз</option><option value="up">Вверх</option><option value="both">В обе стороны</option></select></div>
+      <div class="slider"><span>Плотность</span><input id="cDens" type="range" min="40" max="400" step="10" value="160"><output></output></div>
+      <div class="slider"><span>Длина, %</span><input id="cLen" type="range" min="5" max="100" step="1" value="40"><output></output></div>
+      <div class="slider"><span>Прозрачность</span><input id="cOp" type="range" min="0.05" max="1" step="0.05" value="0.6"><output></output></div></details>
+    <details><summary><button class="sw" data-ly="plot" aria-pressed="false">выкл</button>Плоттер-линии</summary>
+      <div class="slider"><span>Линий</span><input id="pLines" type="range" min="20" max="240" step="2" value="90"><output></output></div>
+      <div class="slider"><span>Контраст</span><input id="pCon" type="range" min="0.5" max="4" step="0.05" value="1.6"><output></output></div>
+      <div class="slider"><span>Детализация</span><input id="pDef" type="range" min="10" max="100" step="5" value="55"><output></output></div>
+      <label class="chk"><input id="pSingle" type="checkbox" checked> Одна непрерывная линия</label>
+      <div class="slider"><span>Толщина</span><input id="pW" type="range" min="0.3" max="5" step="0.1" value="1.2"><output></output></div>
+      <div class="slider"><span>Движение</span><input id="pAnim" type="range" min="0" max="3" step="0.1" value="0.6"><output></output></div>
+      <div class="slider"><span>Виньетка</span><input id="pVig" type="range" min="0" max="1" step="0.05" value="0"><output></output></div>
+      <div class="field"><span>Цвет линий</span><select id="pCol"><option value="#ffffff">Белый</option><option value="#3fe3f2">Циан</option><option value="#ff4d3a">Красный</option><option value="#2d4bff">Кобальт</option></select></div></details>
   </div>
 
   <div class="grp" id="fxGrp"><div class="lbl">Эффекты</div>
@@ -2044,7 +2091,7 @@ if (typeof module === "object" && typeof module.exports === "object") Object.ass
 const $ = id => document.getElementById(id);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const MAX_DUR = 300, MAX_SIDE = 2560, TAU = Math.PI * 2, DEG = Math.PI / 180;
-const stage = $('stage'), glc = $('gl'), hud = $('hud'), hctx = hud.getContext('2d');
+const stage = $('stage'), glc = $('gl'), view = $('view'), vctx = view.getContext('2d'), hud = $('hud'), hctx = hud.getContext('2d');
 
 // ---------------------------------------------------------------- video + three.js
 const video = document.createElement('video');
@@ -2263,7 +2310,7 @@ function applyFx(id){
   U[FX[id]].value = on ? +$(id).value : 0;
   b.setAttribute('aria-pressed', on); b.textContent = on ? 'вкл' : 'выкл'; b.closest('summary').classList.toggle('act', on);
 }
-document.querySelectorAll('.sw').forEach(b => b.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); const id = b.dataset.fx; fxOn[id] = !fxOn[id]; applyFx(id); }));
+document.querySelectorAll('.sw[data-fx]').forEach(b => b.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); const id = b.dataset.fx; fxOn[id] = !fxOn[id]; applyFx(id); }));
 Object.keys(FX).forEach(id => { fxOn[id] = 'init'; bindRange(id, f2, () => { if (fxOn[id] === 'init') return; fxOn[id] = true; applyFx(id); }); fxOn[id] = false; applyFx(id); });
 [['fxPulseN', 'uPulseN'], ['fxWaveL', 'uWaveL'], ['fxWaveN', 'uWaveN'], ['fxScanW', 'uScanW'], ['fxScanN', 'uScanN'], ['fxTurbN', 'uTurbN']]
   .forEach(([id, u]) => bindRange(id, v => +$(id).step >= 1 ? String(v) : f2(v), v => U[u].value = v));
@@ -2283,10 +2330,10 @@ let rotY = 0, rotX = 0, tRotY = 0, tRotX = 0, zoom = 1, tZoom = 1, baseZ = 600, 
 const MAXY = 90 * DEG, MAXX = 50 * DEG;
 const setView = (y, x) => { tRotY = clamp(y, -MAXY, MAXY); tRotX = clamp(x, -MAXX, MAXX); };
 document.querySelectorAll('.cams button').forEach(b => b.onclick = () => setView(+b.dataset.y * DEG, +b.dataset.x * DEG));
-glc.addEventListener('pointerdown', e => { dragging = true; px0 = e.clientX; py0 = e.clientY; glc.setPointerCapture(e.pointerId); });
-glc.addEventListener('pointermove', e => { if (!dragging) return; setView(tRotY + (e.clientX - px0) * 0.005, tRotX + (e.clientY - py0) * 0.004); px0 = e.clientX; py0 = e.clientY; });
-glc.addEventListener('pointerup', () => dragging = false);
-glc.addEventListener('dblclick', () => setView(0, 0));
+view.addEventListener('pointerdown', e => { dragging = true; px0 = e.clientX; py0 = e.clientY; view.setPointerCapture(e.pointerId); });
+view.addEventListener('pointermove', e => { if (!dragging) return; setView(tRotY + (e.clientX - px0) * 0.005, tRotX + (e.clientY - py0) * 0.004); px0 = e.clientX; py0 = e.clientY; });
+view.addEventListener('pointerup', () => dragging = false);
+view.addEventListener('dblclick', () => setView(0, 0));
 const joy = $('joy'), knob = $('knob'), JP = 11; let joyDrag = false;
 const joyAt = e => { const r = joy.getBoundingClientRect();
   setView(-clamp((e.clientX - r.left - JP) / (r.width - 2 * JP) * 2 - 1, -1, 1) * MAXY, clamp((e.clientY - r.top - JP) / (r.height - 2 * JP) * 2 - 1, -1, 1) * MAXX); };
@@ -2369,9 +2416,186 @@ function layoutStage(){
   viewW = Math.round(fw * s); viewH = Math.round(fh * s);
   stage.style.width = viewW + 'px'; stage.style.height = viewH + 'px';
   const dpr = Math.min(2, devicePixelRatio || 1);
-  setRenderSize(viewW * dpr, viewH * dpr); hud.width = viewW * dpr; hud.height = viewH * dpr; fitCamera();
+  setRenderSize(viewW * dpr, viewH * dpr); hud.width = view.width = viewW * dpr; hud.height = view.height = viewH * dpr; fitCamera();
 }
 addEventListener('resize', () => { if (!exporting) layoutStage(); });
+
+
+// ---------------------------------------------------------------- graphic layers (contours, nodes, links, dither, curtain, plotter lines)
+const lyOn = {nodes: false, links: false, dither: false, curtain: false, plot: false};
+document.querySelectorAll('.sw[data-ly]').forEach(b => b.addEventListener('click', e => {
+  e.preventDefault(); e.stopPropagation(); const k = b.dataset.ly; lyOn[k] = !lyOn[k];
+  b.setAttribute('aria-pressed', lyOn[k]); b.textContent = lyOn[k] ? 'вкл' : 'выкл'; b.closest('summary').classList.toggle('act', lyOn[k]);
+}));
+['underlay', 'nDens', 'nThr', 'nMin', 'nMax', 'nStroke', 'lDist', 'lConf', 'lOp', 'lW', 'dPitch', 'dThr', 'dCon', 'dOp', 'cDens', 'cLen', 'cOp', 'pLines', 'pCon', 'pDef', 'pW', 'pAnim', 'pVig']
+  .forEach(id => bindRange(id, v => Number.isInteger(+$(id).step) && +$(id).step >= 1 ? String(v) : f2(v)));
+const num = id => +$(id).value;
+const PALETTES = {
+  source: null, cyan: [[63, 227, 242], [20, 120, 140]], solar: [[255, 190, 90], [255, 110, 40]], mono: [[240, 240, 240], [140, 140, 140]], violet: [[190, 150, 255], [110, 70, 220]],
+};
+const INKS = {cobalt: ['#1c36ff', '#ece8dc'], electric: ['#0a1cff', '#d8ff3a'], cyan: ['#0b8fa8', '#f4fbfb'], forest: ['#0f4a2c', '#eef0dc'], red: ['#e0261d', '#f3ece2'], mono: ['#0a0a0a', '#f2f2f2']};
+const hex2rgb = h => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+
+let edgeA = null, gxA = null, gyA = null, edgeMax = 1;
+function analyseEdges(){
+  const n = gw * gh; if (!edgeA || edgeA.length !== n) { edgeA = new Float32Array(n); gxA = new Float32Array(n); gyA = new Float32Array(n); }
+  let mx = 1e-6;
+  for (let y = 1; y < gh - 1; y++) for (let x = 1; x < gw - 1; x++) {
+    const i = y * gw + x, a = lumA[i - gw - 1], b = lumA[i - gw], c = lumA[i - gw + 1], d = lumA[i - 1], f = lumA[i + 1], g = lumA[i + gw - 1], h = lumA[i + gw], k = lumA[i + gw + 1];
+    const sx = (c + 2 * f + k) - (a + 2 * d + g), sy = (g + 2 * h + k) - (a + 2 * b + c);
+    gxA[i] = sx; gyA[i] = sy; const m = Math.hypot(sx, sy); edgeA[i] = m; if (m > mx) mx = m;
+  }
+  edgeMax = mx;
+}
+function videoRect(w, h){ let rw = w, rh = w / aspect; if (rh > h) { rh = h; rw = h * aspect; } return {x: (w - rw) / 2, y: (h - rh) / 2, w: rw, h: rh}; }
+function geoRGB(i, lift){   // colour of a node / curtain strip
+  const pal = PALETTES[$('geoColor').value];
+  if (!pal) { const q = i * 4; return [Math.round(255 * (lift + (1 - lift) * pix[q] / 255)), Math.round(255 * (lift + (1 - lift) * pix[q + 1] / 255)), Math.round(255 * (lift + (1 - lift) * pix[q + 2] / 255))]; }
+  return pal[0];
+}
+
+// nodes: strongest contour pixel per cell, so the set is stable from frame to frame
+function pickNodes(){
+  const N = num('nDens'), cs = Math.max(2, Math.round(Math.sqrt(gw * gh / N))), thr = num('nThr') * edgeMax, out = [];
+  for (let cy = 0; cy < gh; cy += cs) for (let cx = 0; cx < gw; cx += cs) {
+    let bi = -1, bm = thr;
+    for (let y = cy; y < Math.min(gh - 1, cy + cs); y++) for (let x = cx; x < Math.min(gw - 1, cx + cs); x++) { const m = edgeA[y * gw + x]; if (m > bm) { bm = m; bi = y * gw + x; } }
+    if (bi >= 0) out.push({i: bi, x: bi % gw, y: (bi / gw) | 0, m: bm / edgeMax, ang: Math.atan2(gyA[bi], gxA[bi]) + Math.PI / 2});
+  }
+  out.sort((a, b) => b.m - a.m);
+  out.forEach((o, r) => { o.rank = r / Math.max(1, out.length - 1); });
+  return out;
+}
+function delaunayEdges(P){
+  const n = P.length; if (n < 3) return [];
+  let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9; P.forEach(([x, y]) => { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); });
+  const dm = Math.max(x1 - x0, y1 - y0) || 1, mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
+  const V = P.concat([[mx - 20 * dm, my - dm], [mx, my + 20 * dm], [mx + 20 * dm, my - dm]]);
+  const circ = (a, b, c) => { const [ax, ay] = V[a], [bx, by] = V[b], [cx, cy] = V[c], d = 2 * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by)) || 1e-9;
+    const ux = ((ax * ax + ay * ay) * (by - cy) + (bx * bx + by * by) * (cy - ay) + (cx * cx + cy * cy) * (ay - by)) / d;
+    const uy = ((ax * ax + ay * ay) * (cx - bx) + (bx * bx + by * by) * (ax - cx) + (cx * cx + cy * cy) * (bx - ax)) / d; return [ux, uy, (ax - ux) ** 2 + (ay - uy) ** 2]; };
+  let tris = [{v: [n, n + 1, n + 2], c: circ(n, n + 1, n + 2)}];
+  for (let i = 0; i < n; i++) {
+    const [px, py] = V[i], bad = new Set(), cnt = new Map();
+    for (const t of tris) if ((px - t.c[0]) ** 2 + (py - t.c[1]) ** 2 < t.c[2]) bad.add(t);
+    for (const t of bad) for (let e = 0; e < 3; e++) { const a = t.v[e], b = t.v[(e + 1) % 3], k = Math.min(a, b) * 65536 + Math.max(a, b); cnt.set(k, (cnt.get(k) || 0) + 1); }
+    tris = tris.filter(t => !bad.has(t));
+    for (const [k, c] of cnt) if (c === 1) { const a = Math.floor(k / 65536), b = k % 65536; tris.push({v: [a, b, i], c: circ(a, b, i)}); }
+  }
+  const seen = new Set(), E = [];
+  for (const t of tris) for (let e = 0; e < 3; e++) { const a = t.v[e], b = t.v[(e + 1) % 3]; if (a >= n || b >= n) continue; const k = Math.min(a, b) * 65536 + Math.max(a, b); if (!seen.has(k)) { seen.add(k); E.push([a, b]); } }
+  return E;
+}
+function drawShape(ctx, kind, x, y, r, ang){
+  ctx.beginPath();
+  if (kind === 'circle') ctx.arc(x, y, r, 0, TAU);
+  else if (kind === 'square') { ctx.save(); ctx.translate(x, y); ctx.rotate(ang); ctx.rect(-r, -r, 2 * r, 2 * r); ctx.restore(); }
+  else if (kind === 'diamond') { ctx.moveTo(x, y - r); ctx.lineTo(x + r, y); ctx.lineTo(x, y + r); ctx.lineTo(x - r, y); ctx.closePath(); }
+  else if (kind === 'cross') { ctx.moveTo(x - r, y); ctx.lineTo(x + r, y); ctx.moveTo(x, y - r); ctx.lineTo(x, y + r); }
+  else { const c = r * 0.55, ca = Math.cos(ang), sa = Math.sin(ang), P = (u, v) => [x + u * ca - v * sa, y + u * sa + v * ca];
+    const seg = (a, b, c2) => { ctx.moveTo(...P(a, b)); ctx.lineTo(...P(-r * Math.sign(a) || -r, -r * Math.sign(b))); };
+    [[-1, -1], [1, 1]].forEach(([sx, sy]) => { ctx.moveTo(...P(sx * r, sy * (r - c))); ctx.lineTo(...P(sx * r, sy * r)); ctx.lineTo(...P(sx * (r - c), sy * r)); }); }
+  ctx.stroke();
+}
+function dither(ctx, vr, w, h){
+  const k = Math.min(w, h) / 1080, pitch = Math.max(1, num('dPitch') * k);
+  let bw = Math.max(8, Math.round(vr.w / pitch)), bh = Math.max(8, Math.round(vr.h / pitch));
+  const cap = 700000; if (bw * bh > cap) { const f = Math.sqrt(cap / (bw * bh)); bw = Math.round(bw * f); bh = Math.round(bh * f); }
+  if (!dither.c) { dither.c = document.createElement('canvas'); dither.x = dither.c.getContext('2d', {willReadFrequently: true}); }
+  const c = dither.c, x = dither.x; c.width = bw; c.height = bh; x.drawImage(video, 0, 0, bw, bh);
+  const img = x.getImageData(0, 0, bw, bh), d = img.data, L = new Float32Array(bw * bh), con = num('dCon'), thr = num('dThr');
+  for (let i = 0; i < bw * bh; i++) L[i] = clamp(((0.299 * d[i * 4] + 0.587 * d[i * 4 + 1] + 0.114 * d[i * 4 + 2]) / 255 - 0.5) * con + 0.5, 0, 1);
+  const algo = $('dAlgo').value, B = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5], bits = new Uint8Array(bw * bh);
+  const diffuse = (list, div) => { for (let y = 0; y < bh; y++) for (let xx = 0; xx < bw; xx++) { const i = y * bw + xx, o = L[i] < thr ? 0 : 1; bits[i] = o; const e = L[i] - o;
+    for (const [dx, dy, wt] of list) { const X = xx + dx, Y = y + dy; if (X >= 0 && X < bw && Y < bh) L[Y * bw + X] += e * wt / div; } } };
+  if (algo === 'atkinson') diffuse([[1, 0, 1], [2, 0, 1], [-1, 1, 1], [0, 1, 1], [1, 1, 1], [0, 2, 1]], 8);
+  else if (algo === 'fs') diffuse([[1, 0, 7], [-1, 1, 3], [0, 1, 5], [1, 1, 1]], 16);
+  else for (let y = 0; y < bh; y++) for (let xx = 0; xx < bw; xx++) { const i = y * bw + xx;
+    const t = algo === 'bayer' ? (B[(y & 3) * 4 + (xx & 3)] + 0.5) / 16 : (52.9829189 * ((0.06711056 * xx + 0.00583715 * y) % 1)) % 1;
+    bits[i] = L[i] + (thr - 0.5) > t ? 1 : 0; }
+  const [inkH, paperH] = INKS[$('dPal').value], ink = hex2rgb(inkH), paper = hex2rgb(paperH), inv = $('dInv').checked;
+  for (let i = 0; i < bw * bh; i++) { const col = (bits[i] ^ (inv ? 1 : 0)) ? paper : ink; d[i * 4] = col[0]; d[i * 4 + 1] = col[1]; d[i * 4 + 2] = col[2]; d[i * 4 + 3] = 255; }
+  x.putImageData(img, 0, 0);
+  ctx.save(); ctx.imageSmoothingEnabled = false; ctx.globalAlpha = num('dOp'); ctx.globalCompositeOperation = $('dBlend').value;
+  ctx.drawImage(c, vr.x, vr.y, vr.w, vr.h); ctx.restore();
+}
+function curtain(ctx, vr, k){
+  const cols = Math.round(num('cDens')), dir = $('cDir').value, len = num('cLen') / 100 * vr.h, step = gw / cols, cw = vr.w / cols;
+  for (let c = 0; c < cols; c++) {
+    const x0 = Math.floor(c * step), x1 = Math.min(gw - 2, Math.max(x0 + 1, Math.floor((c + 1) * step)));
+    let bi = -1, bm = 0.04 * edgeMax;
+    for (let x = x0; x < x1; x++) for (let y = 1; y < gh - 1; y++) { const m = edgeA[y * gw + x]; if (m > bm) { bm = m; bi = y * gw + x; } }
+    if (bi < 0) continue;
+    const [r, g, b] = geoRGB(bi, 0.1), sx = vr.x + c * cw, sy = vr.y + ((bi / gw | 0) + 0.5) / gh * vr.h, a = num('cOp') * Math.min(1, 0.4 + bm / edgeMax);
+    const dirs = dir === 'both' ? [1, -1] : [dir === 'down' ? 1 : -1];
+    for (const dd of dirs) { const y2 = sy + dd * len, gr = ctx.createLinearGradient(0, sy, 0, y2); gr.addColorStop(0, `rgba(${r},${g},${b},${a})`); gr.addColorStop(1, `rgba(${r},${g},${b},0)`);
+      ctx.fillStyle = gr; ctx.fillRect(sx, Math.min(sy, y2), Math.max(1, cw - 0.5 * k), Math.abs(y2 - sy)); }
+  }
+}
+function plotter(ctx, vr, k, t){
+  const L = Math.round(num('pLines')), P = Math.round(40 + num('pDef') * 8), con = num('pCon'), single = $('pSingle').checked, vig = num('pVig'), rowH = vr.h / L;
+  const amp = rowH * 1.1, ph0 = t * num('pAnim') * 2;
+  ctx.strokeStyle = $('pCol').value; ctx.lineWidth = Math.max(0.5, num('pW') * k); ctx.lineJoin = 'round'; ctx.beginPath();
+  for (let l = 0; l < L; l++) {
+    const yn = (l + 0.5) / L, ltr = !single || l % 2 === 0; let phase = l * 1.7 + ph0, first = true;
+    for (let j = 0; j <= P; j++) {
+      const u = ltr ? j / P : 1 - j / P, gxp = clamp(Math.round(u * (gw - 1)), 0, gw - 1), gyp = clamp(Math.round(yn * (gh - 1)), 0, gh - 1);
+      let dark = 1 - lumA[gyp * gw + gxp]; dark = clamp((dark - 0.5) * con + 0.5, 0, 1);
+      if (vig > 0) { const dx = u - 0.5, dy = yn - 0.5, r = Math.sqrt(dx * dx + dy * dy) * 1.6; dark *= clamp(1 - vig * Math.pow(r, 2.2) * 2, 0, 1); }
+      phase += (0.15 + dark * 1.9) * (ltr ? 1 : -1) * (TAU / P) * 8;
+      const px = vr.x + u * vr.w, py = vr.y + yn * vr.h + Math.sin(phase) * amp * dark;
+      if (first && !(single && l > 0)) { ctx.moveTo(px, py); first = false; } else { ctx.lineTo(px, py); first = false; }
+    }
+  }
+  ctx.stroke();
+}
+function drawLayers(ctx, w, h){
+  const vr = videoRect(w, h), k = Math.min(w, h) / 1080, t = U.uTime.value;
+  ctx.save();
+  if (num('underlay') > 0) { ctx.globalAlpha = num('underlay'); ctx.drawImage(video, vr.x, vr.y, vr.w, vr.h); ctx.globalAlpha = 1; }
+  if (lyOn.dither) dither(ctx, vr, w, h);
+  const geo = lyOn.nodes || lyOn.links || lyOn.curtain;
+  if (geo || lyOn.plot) { ctx.globalCompositeOperation = $('geoBlend').value; }
+  if (geo) analyseEdges();
+  if (lyOn.curtain) curtain(ctx, vr, k);
+  if (lyOn.plot) plotter(ctx, vr, k, t);
+  if (lyOn.nodes || lyOn.links) {
+    const nodes = pickNodes(), at = n => [vr.x + (n.x + 0.5) / gw * vr.w, vr.y + (n.y + 0.5) / gh * vr.h];
+    if (lyOn.links && nodes.length > 1) {
+      const maxD = num('lDist') / 100 * vr.w, conf = num('lConf'), mode = $('lMode').value, S = new Map();
+      const add = (a, b) => { const key = Math.min(a, b) * 65536 + Math.max(a, b); if (!S.has(key)) S.set(key, [a, b]); };
+      const P = nodes.map(at), dist = (a, b) => Math.hypot(P[a][0] - P[b][0], P[a][1] - P[b][1]);
+      if (mode === 'delaunay' || mode === 'hybrid') delaunayEdges(P).forEach(([a, b]) => add(a, b));
+      if (mode === 'proximity') nodes.forEach((_, a) => nodes.map((__, b) => [b, dist(a, b)]).filter(([b, d]) => b !== a && d < maxD).sort((x, y) => x[1] - y[1]).slice(0, 3).forEach(([b]) => add(a, b)));
+      if (mode === 'chain') { const used = new Set([0]); let cur = 0; for (let s = 1; s < nodes.length; s++) { let bi = -1, bd = 1e9; for (let b = 0; b < nodes.length; b++) if (!used.has(b)) { const d = dist(cur, b); if (d < bd) { bd = d; bi = b; } } if (bi < 0) break; if (bd < maxD * 1.5) add(cur, bi); used.add(bi); cur = bi; } }
+      if (mode === 'radial' || mode === 'hybrid') nodes.forEach((_, b) => { if (b && dist(0, b) < maxD * 1.6) add(0, b); });
+      ctx.lineWidth = Math.max(0.4, num('lW') * k);
+      for (const [a, b] of S.values()) {
+        const d = dist(a, b); if (d > maxD * (mode === 'radial' ? 1.6 : 1) && mode !== 'chain') continue;
+        const str = (nodes[a].m + nodes[b].m) / 2; if (str < conf) continue;
+        const [r, g, bl] = geoRGB(nodes[a].i, 0.35); ctx.strokeStyle = `rgba(${r},${g},${bl},${(num('lOp') * (1 - d / (maxD * 1.7)) * Math.min(1, 0.4 + str)).toFixed(3)})`;
+        ctx.beginPath(); ctx.moveTo(...P[a]); ctx.lineTo(...P[b]); ctx.stroke();
+      }
+    }
+    if (lyOn.nodes) {
+      const mn = num('nMin') * k, mxs = num('nMax') * k, sh = $('nShape').value, kinds = ['bracket', 'circle', 'square', 'diamond', 'cross'];
+      ctx.lineWidth = Math.max(0.5, num('nStroke') * k); ctx.font = `${Math.round(9 * k)}px ui-monospace, Menlo, monospace`; ctx.textBaseline = 'middle';
+      nodes.forEach((n, idx) => {
+        const [x, y] = at(n), tier = n.rank < 0.06 ? 1 : n.rank < 0.35 ? 0.5 : 0, size = mn + (mxs - mn) * (tier * 0.8 + n.m * 0.2);
+        const [r, g, b] = geoRGB(n.i, 0.35); ctx.strokeStyle = ctx.fillStyle = `rgb(${r},${g},${b})`;
+        drawShape(ctx, sh === 'mixed' ? kinds[(n.x * 7 + n.y * 13) % kinds.length] : sh, x, y, size / 2, n.ang);
+        if (tier === 1) { ctx.beginPath(); ctx.arc(x, y, Math.max(1, 1.2 * k), 0, TAU); ctx.fill(); }
+        if ($('nLabels').checked && tier > 0) ctx.fillText(`${String(idx + 1).padStart(3, '0')} ${(n.x / gw).toFixed(2)} ${(n.y / gh).toFixed(2)}`, x + size / 2 + 4 * k, y - size / 2);
+      });
+    }
+  }
+  ctx.restore();
+}
+function composeFrame(ctx, w, h){
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over'; ctx.fillStyle = '#000'; ctx.fillRect(0, 0, w, h);
+  if ($('cloudOn').checked) ctx.drawImage(glc, 0, 0, w, h);
+  drawLayers(ctx, w, h);
+}
 
 // ---------------------------------------------------------------- HUD (markers, links, frame), drawn in target-frame pixels
 const v3 = new THREE.Vector3(), sgn = n => (n >= 0 ? '+' : '−') + Math.abs(n).toFixed(2);
@@ -2506,7 +2730,8 @@ function frame(){
     updateCam(); applyScene(t);
     tex.needsUpdate = true;
     if (tracked.length || needCpu) updateCpu();
-    renderer.render(scene, camera); drawHud(hctx, hud.width, hud.height);
+    if ($('cloudOn').checked) renderer.render(scene, camera);
+    composeFrame(vctx, view.width, view.height); drawHud(hctx, hud.width, hud.height);
   }
   requestAnimationFrame(frame);
 }
@@ -2525,8 +2750,8 @@ function seekTo(t){
 }
 function renderAt(t, fw, fh, comp, cctx){
   applyScene(t); tex.needsUpdate = true; updateCpu();
-  renderer.render(scene, camera);
-  cctx.setTransform(1, 0, 0, 1, 0, 0); cctx.fillStyle = '#000'; cctx.fillRect(0, 0, fw, fh); cctx.drawImage(glc, 0, 0, fw, fh);
+  if ($('cloudOn').checked) renderer.render(scene, camera);
+  composeFrame(cctx, fw, fh);
   drawHud(hudCtx, fw, fh); cctx.drawImage(hudOff, 0, 0);
 }
 async function pickCodec(fw, fh, fps, bitrate){
