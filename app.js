@@ -88,14 +88,21 @@ varying vec3 vColor; varying float vAlpha;
 void main(){ float d = length(gl_PointCoord-0.5); if (d>0.5) discard; float a = smoothstep(0.5,0.0,d)*vAlpha; gl_FragColor = vec4(vColor*a, a); }`;
 const material = new THREE.ShaderMaterial({uniforms: U, vertexShader: vs, fragmentShader: fs, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending});
 
-// ---------------------------------------------------------------- GPU video pipeline: the clip itself is warped, re-coloured and re-printed in a shader
-const VU = {uVid: {value: null}, uPrev: {value: null}, uFit: {value: new THREE.Vector2(1, 1)}, uOutAsp: {value: 1.78}, uRes: {value: new THREE.Vector2(1280, 720)}, uTime: {value: 0}, uPxS: {value: 1}, uVidA: {value: 1},
-  uA: {value: new THREE.Vector4(1, 0, 0, 0)}, uB: {value: new THREE.Vector4()}, uC: {value: new THREE.Vector4()}, uD: {value: new THREE.Vector4()}, uE: {value: new THREE.Vector4()}, uF: {value: new THREE.Vector4()},
-  uG: {value: new THREE.Vector4(0, 1, 0, 0)}, uH: {value: new THREE.Vector4(1, 1, 1, 0)}, uCam: {value: new THREE.Vector2()}, uC0: {value: new THREE.Vector3(0.02, 0.03, 0.08)}, uC1: {value: new THREE.Vector3(1, 0.95, 0.85)}, uC2: {value: new THREE.Vector3(0.25, 0.9, 0.95)}};
+
+// ---------------------------------------------------------------- GPU video pipeline: the clip itself is warped, re-coloured and re-printed in one shader
+// VPD lists every shader parameter with its neutral value. Effects (see fx.js) only change these numbers.
+const VPD = {zoom: 1, rot: 0, panx: 0, pany: 0, bulge: 0, warp: 0, warpF: 8, warpS: 1, self: 0, slice: 0, pix: 0, par: 0, camx: 0, camy: 0, ca: 0, glow: 0, edge: 0, mirror: 0, kseg: 6, duo: 0, post: 0, half: 0, dith: 0,
+  grain: 0, scan: 0, vig: 0, bars: 0, fb: 0, fbz: 1, trans: 0, ttype: 0, exposure: 1, contrast: 1, sat: 1, flash: 0, vhs: 0, crt: 0, solar: 0, neg: 0, thermal: 0, night: 0, leak: 0, burn: 0, dust: 0, gtint: 0, ana: 0,
+  rip: 0, ripT: 0, zb: 0, mb: 0, mba: 0, tilt: 0, sort: 0, led: 0, comic: 0, sketch: 0, hatch: 0, tone: 0, chrome: 0, streak: 0, hue: 0, gmap: 0, riso: 0, mosh: 0, tile: 1, vidA: 1};
+const PNAMES = Object.keys(VPD), NVEC = Math.ceil(PNAMES.length / 4);
+const pDefs = PNAMES.map((k, i) => `#define p_${k} uP[${i >> 2}].${'xyzw'[i & 3]}`).join('\n');
+const VU = {uVid: {value: null}, uPrev: {value: null}, uFit: {value: new THREE.Vector2(1, 1)}, uOutAsp: {value: 1.78}, uRes: {value: new THREE.Vector2(1280, 720)}, uTime: {value: 0}, uPxS: {value: 1}, uCam: {value: new THREE.Vector2()},
+  uP: {value: Array.from({length: NVEC}, () => new THREE.Vector4())}, uC0: {value: new THREE.Vector3()}, uC1: {value: new THREE.Vector3()}, uC2: {value: new THREE.Vector3()}, uC3: {value: new THREE.Vector3()}};
 const VFS = `
 varying vec2 vUv;
-uniform sampler2D uVid, uPrev; uniform vec2 uFit, uRes, uCam; uniform float uOutAsp, uTime, uPxS, uVidA;
-uniform vec4 uA, uB, uC, uD, uE, uF, uG, uH; uniform vec3 uC0, uC1, uC2;
+uniform sampler2D uVid, uPrev; uniform vec2 uFit, uRes, uCam; uniform float uOutAsp, uTime, uPxS;
+uniform vec4 uP[${NVEC}]; uniform vec3 uC0, uC1, uC2, uC3;
+${pDefs}
 float hash(float n){ return fract(sin(n*127.1)*43758.5453); }
 float hash2(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7)))*43758.5453); }
 vec3 tex(vec2 uv){ return texture2D(uVid, clamp(uv, vec2(0.001), vec2(0.999))).rgb; }
@@ -104,44 +111,89 @@ mat2 rot2(float a){ float c = cos(a), s = sin(a); return mat2(c, -s, s, c); }
 vec2 toVid(vec2 p){ vec2 q = vec2(p.x/uOutAsp, p.y) + 0.5; return (q - 0.5)/uFit + 0.5; }
 float bayer4(vec2 q){ vec2 m = mod(q, 4.0); float x0 = mod(m.x, 2.0), x1 = floor(m.x/2.0), y0 = mod(m.y, 2.0), y1 = floor(m.y/2.0);
   return (abs(x0-y0)*8.0 + y0*4.0 + abs(x1-y1)*2.0 + y1)/16.0 + 0.03; }
+vec3 heat(float t){ return t < 0.25 ? mix(vec3(0.0,0.0,0.12), vec3(0.3,0.0,0.7), t*4.0) : t < 0.5 ? mix(vec3(0.3,0.0,0.7), vec3(0.9,0.1,0.2), (t-0.25)*4.0) : t < 0.75 ? mix(vec3(0.9,0.1,0.2), vec3(1.0,0.8,0.0), (t-0.5)*4.0) : mix(vec3(1.0,0.8,0.0), vec3(1.0,1.0,0.92), (t-0.75)*4.0); }
+vec3 chromeRamp(float t){ t = clamp(t, 0.0, 1.0); float m = clamp(t*0.75 + 0.14*sin(t*13.0) + 0.1, 0.0, 1.0);
+  return m < 0.35 ? mix(vec3(0.03,0.05,0.14), vec3(0.32,0.46,0.74), m/0.35) : m < 0.7 ? mix(vec3(0.32,0.46,0.74), vec3(0.93,0.96,1.0), (m-0.35)/0.35) : mix(vec3(0.93,0.96,1.0), vec3(1.0,0.86,0.96), (m-0.7)/0.3); }
 void main(){
-  float tr = uG.z; int tt = int(uG.w + 0.5);
-  vec2 p = (vUv - 0.5)*vec2(uOutAsp, 1.0);
-  p = rot2(uA.y)*p; p /= max(0.2, uA.x); p += uA.zw;                      // camera: push-in, roll, drift
+  float tr = p_trans; int tt = int(p_ttype + 0.5);
+  vec2 q = vUv; if (p_tile > 1.5) q = fract(q*floor(p_tile + 0.5));
+  vec2 p = (q - 0.5)*vec2(uOutAsp, 1.0);
+  p = rot2(p_rot)*p; p /= max(0.2, p_zoom); p += vec2(p_panx, p_pany);                  // camera
   if (tt == 2) p *= 1.0 - 0.1*tr;
-  int mm = int(uD.w + 0.5);                                                // mirror / kaleidoscope
+  int mm = int(p_mirror + 0.5);                                                          // mirror, kaleidoscope
   if (mm == 1) p.x = abs(p.x); else if (mm == 2) p = abs(p);
-  else if (mm == 3) { float a = atan(p.y, p.x), r = length(p), seg = 1.0471976; a = abs(mod(a, seg) - seg*0.5); p = vec2(cos(a), sin(a))*r; }
-  p *= 1.0 + uB.x*dot(p, p);                                               // lens
-  p += vec2(sin(p.y*uB.z + uTime*uB.w), cos(p.x*uB.z*0.8 + uTime*uB.w*1.3))*uB.y;   // wave warp
-  float sl = uC.y + (tt == 3 ? 0.12*tr : 0.0);                             // glitch slices
+  else if (mm == 3) { float a = atan(p.y, p.x), r = length(p), seg = 6.2831853/max(2.0, floor(p_kseg + 0.5)); a = abs(mod(a, seg) - seg*0.5); p = vec2(cos(a), sin(a))*r; }
+  p *= 1.0 + (p_bulge + 0.12*p_crt)*dot(p, p);                                           // lens, CRT curvature
+  if (p_rip > 0.0) { float r = length(p); p += normalize(p + vec2(0.0001))*sin(r*26.0 - p_ripT*12.0)*p_rip*0.045*exp(-r*1.4); }   // shock ring
+  p += vec2(sin(p.y*p_warpF + uTime*p_warpS), cos(p.x*p_warpF*0.8 + uTime*p_warpS*1.3))*p_warp;   // wave warp
+  float sl = p_slice + (tt == 3 ? 0.12*tr : 0.0);                                         // glitch slices
   if (sl > 0.001) { float tk = floor(uTime*10.0), band = floor(p.y*14.0 + 3.0*hash(tk)); float on = step(0.62, hash(band + tk*7.0)); p.x += (hash(band*3.1 + tk) - 0.5)*sl*2.0*on; }
-  if (uC.z > 0.001) p = (floor(p/uC.z) + 0.5)*uC.z;                        // mosaic
+  if (p_pix > 0.001) p = (floor(p/p_pix) + 0.5)*p_pix;                                    // mosaic
   vec2 vuv = toVid(p);
   if (tt == 1) vuv.x += 0.22*tr*tr;
-  if (uC.x > 0.0) { float e = 0.004; vec2 g = vec2(lum(tex(vuv + vec2(e,0.0))) - lum(tex(vuv - vec2(e,0.0))), lum(tex(vuv + vec2(0.0,e))) - lum(tex(vuv - vec2(0.0,e)))); vuv += g*uC.x*8.0; }   // the picture bends light by its own brightness
-  if (uC.w > 0.0) { float d = lum(tex(vuv)); vuv += uCam*(d - 0.5)*uC.w; }   // brightness as depth: parallax
-  vec2 dir = normalize(p + vec2(0.0001))*uD.x*(0.4 + length(p))*(tt == 3 ? 1.0 + 3.0*tr : 1.0);
+  if (p_vhs > 0.0) { float y = vUv.y, rowj = (hash(floor(y*240.0) + floor(uTime*24.0)) - 0.5)*0.004;
+    float tear = step(0.985, hash(floor(y*60.0) + floor(uTime*8.0)))*(hash(uTime) - 0.5)*0.09, head = (1.0 - smoothstep(0.0, 0.06, y))*(hash(y*100.0 + uTime*30.0) - 0.5)*0.1;
+    vuv.x += (rowj + tear + head)*p_vhs; }
+  if (p_self > 0.0) { float e = 0.004; vec2 g = vec2(lum(tex(vuv + vec2(e,0.0))) - lum(tex(vuv - vec2(e,0.0))), lum(tex(vuv + vec2(0.0,e))) - lum(tex(vuv - vec2(0.0,e)))); vuv += g*p_self*8.0; }   // picture bends by its own brightness
+  if (p_par > 0.0) { float d = lum(tex(vuv)); vuv += uCam*(d - 0.5)*p_par; }              // brightness as depth: parallax
+  vec2 dir = normalize(p + vec2(0.0001))*p_ca*(0.4 + length(p))*(tt == 3 ? 1.0 + 3.0*tr : 1.0) + vec2(0.0045*p_vhs, 0.0);
+  float zb = p_zb + (tt == 2 ? tr : 0.0); vec2 mbv = vec2(cos(p_mba), sin(p_mba))*(p_mb + (tt == 1 ? 0.3*tr : 0.0));
   vec3 col;
-  if (tt == 1 || tt == 2) { vec3 acc = vec3(0.0); for (int i = 0; i < 9; i++) { float k = float(i)/8.0 - 0.5; vec2 off = tt == 1 ? vec2(k*0.10*tr, 0.0) : (vuv - 0.5)*k*0.12*tr; acc += tex(vuv + off); } col = acc/9.0; }
+  if (zb > 0.001 || length(mbv) > 0.001) { vec3 acc = vec3(0.0); for (int i = 0; i < 9; i++) { float k = float(i)/8.0 - 0.5; acc += tex(vuv + (vuv - 0.5)*k*0.12*zb + mbv*k*0.12); } col = acc/9.0; }
   else col = vec3(tex(vuv + dir).r, tex(vuv).g, tex(vuv - dir).b);
+  if (p_ana > 0.0) { vec3 L = tex(vuv + vec2(p_ana*0.02, 0.0)), R = tex(vuv - vec2(p_ana*0.02, 0.0)); col = vec3(L.r, R.g, R.b); }   // red-cyan 3D
   col *= step(0.0, vuv.x)*step(vuv.x, 1.0)*step(0.0, vuv.y)*step(vuv.y, 1.0);
-  if (uD.z > 0.0) { float e = 0.0035; float a = lum(tex(vuv + vec2(-e,-e))), b = lum(tex(vuv + vec2(0.0,-e))), c = lum(tex(vuv + vec2(e,-e))), d = lum(tex(vuv + vec2(-e,0.0))), f = lum(tex(vuv + vec2(e,0.0))), g = lum(tex(vuv + vec2(-e,e))), h = lum(tex(vuv + vec2(0.0,e))), i = lum(tex(vuv + vec2(e,e)));
-    float gx = (c + 2.0*f + i) - (a + 2.0*d + g), gy = (g + 2.0*h + i) - (a + 2.0*b + c); col += uC2*smoothstep(0.08, 0.7, length(vec2(gx, gy)))*uD.z; }   // contour light
-  if (uD.y > 0.0) { vec3 bl = vec3(0.0); for (int i = 0; i < 8; i++) { float a = float(i)*0.785398; vec2 o = vec2(cos(a), sin(a))*0.012; bl += max(tex(vuv + o) - 0.55, 0.0) + 0.7*max(tex(vuv + o*2.4) - 0.55, 0.0); } col += bl/8.0*uD.y*1.3; }   // highlight bloom
-  col *= uH.z; col = (col - 0.5)*uH.x + 0.5; float l = lum(col); col = mix(vec3(l), col, uH.y);        // exposure, contrast, saturation
-  if (uE.x > 0.0) col = mix(col, mix(uC0, uC1, smoothstep(0.0, 1.0, lum(col))), uE.x);                 // duotone / split tone
-  if (uE.y > 0.5) col = floor(col*uE.y + 0.5)/uE.y;                                                    // posterise
-  if (uE.z > 0.5) { float cs = uE.z*uPxS; vec2 fc = gl_FragCoord.xy, cell = (floor(fc/cs) + 0.5)*cs, cp = (cell/uRes - 0.5)*vec2(uOutAsp, 1.0); vec3 cc = tex(toVid(cp));
+  if (p_tilt > 0.0) { float rr = smoothstep(0.12, 0.5, abs(vUv.y - 0.5))*p_tilt*0.012; vec3 a = col; for (int i = 0; i < 6; i++) { float an = float(i)*1.0472; a += tex(vuv + vec2(cos(an), sin(an))*rr); } col = a/7.0; }   // tilt-shift blur
+  if (p_sort > 0.0) { vec3 best = col; for (int i = 1; i < 14; i++) { vec3 s = tex(vuv + vec2(0.0, float(i)*0.012*p_sort)); if (lum(s) > 0.42) best = max(best, s*(1.0 - float(i)/16.0)); } col = best; }   // bright streaks run down
+  float ed = 0.0;
+  if (p_edge > 0.0 || p_comic > 0.0 || p_sketch > 0.0) { float e = 0.0035; float a = lum(tex(vuv + vec2(-e,-e))), b = lum(tex(vuv + vec2(0.0,-e))), c = lum(tex(vuv + vec2(e,-e))), d = lum(tex(vuv + vec2(-e,0.0))), f = lum(tex(vuv + vec2(e,0.0))), g = lum(tex(vuv + vec2(-e,e))), h = lum(tex(vuv + vec2(0.0,e))), i = lum(tex(vuv + vec2(e,e)));
+    float gx = (c + 2.0*f + i) - (a + 2.0*d + g), gy = (g + 2.0*h + i) - (a + 2.0*b + c); ed = length(vec2(gx, gy)); }
+  if (p_edge > 0.0) col += uC2*smoothstep(0.08, 0.7, ed)*p_edge;                          // contour light, in the palette accent
+  if (p_glow > 0.0) { vec3 bl = vec3(0.0); for (int i = 0; i < 8; i++) { float a = float(i)*0.785398; vec2 o = vec2(cos(a), sin(a))*0.012; bl += max(tex(vuv + o) - 0.55, 0.0) + 0.7*max(tex(vuv + o*2.4) - 0.55, 0.0); } col += bl/8.0*p_glow*1.3*mix(vec3(1.0), uC2*1.2, p_gtint); }   // bloom / halation
+  if (p_streak > 0.0) { vec3 s = vec3(0.0); for (int i = -8; i <= 8; i++) { float k = float(i)/8.0; s += max(tex(vuv + vec2(k*0.2, 0.0)) - 0.68, 0.0)*(1.0 - abs(k)); } col += s/5.0*p_streak*mix(vec3(1.0), uC2*1.3, 0.65); }   // anamorphic flare
+  col *= p_exposure; col = (col - 0.5)*p_contrast + 0.5; float l = lum(col); col = mix(vec3(l), col, p_sat);
+  if (p_hue != 0.0) { float c = cos(p_hue), s = sin(p_hue); vec3 y = vec3(dot(col, vec3(0.299,0.587,0.114)), dot(col, vec3(0.596,-0.274,-0.322)), dot(col, vec3(0.211,-0.523,0.312)));
+    float i2 = y.y*c - y.z*s, q2 = y.y*s + y.z*c; col = vec3(y.x + 0.956*i2 + 0.621*q2, y.x - 0.272*i2 - 0.647*q2, y.x - 1.106*i2 + 1.703*q2); }
+  if (p_tone > 0.0) { float lt = lum(col); col *= mix(vec3(1.0) + (uC0 - 0.5)*p_tone*1.6, vec3(1.0) + (uC1 - 0.5)*p_tone*1.6, smoothstep(0.1, 0.9, lt)); }   // split tone
+  if (p_gmap > 0.0) { float lg = lum(col); col = mix(col, lg < 0.5 ? mix(uC0, uC3, lg*2.0) : mix(uC3, uC1, (lg - 0.5)*2.0), p_gmap); }   // palette gradient map
+  if (p_duo > 0.0) col = mix(col, mix(uC0, uC1, smoothstep(0.0, 1.0, lum(col))), p_duo);
+  if (p_chrome > 0.0) col = mix(col, chromeRamp(lum(col))*mix(vec3(1.0), uC2*1.1 + 0.25, 0.18), p_chrome);   // Y2K chrome
+  if (p_thermal > 0.0) col = mix(col, heat(clamp(lum(col)*1.1, 0.0, 1.0)), p_thermal);
+  if (p_night > 0.0) col = mix(col, vec3(0.12, 1.0, 0.28)*pow(clamp(lum(col)*1.5, 0.0, 1.0), 0.8), p_night);
+  if (p_solar > 0.0) col = mix(col, mix(col, 1.0 - col, step(0.5, col)), p_solar);
+  if (p_neg > 0.0) col = mix(col, 1.0 - col, p_neg);
+  if (p_post > 0.5) col = floor(col*p_post + 0.5)/p_post;
+  if (p_comic > 0.0) { col = floor(col*4.0 + 0.5)/4.0; col *= 1.0 - smoothstep(0.1, 0.5, ed)*p_comic*0.9; col = mix(vec3(lum(col)), col, 1.25); }
+  if (p_sketch > 0.0) { float ink = clamp(smoothstep(0.06, 0.4, ed) + (1.0 - lum(col))*0.28, 0.0, 1.0); col = mix(col, mix(uC1, uC0, ink), p_sketch); }
+  if (p_hatch > 0.0) { float cs = 6.0*uPxS, dk = 1.0 - lum(col), ln1 = step(0.5, fract((gl_FragCoord.x + gl_FragCoord.y)/cs)), ln2 = step(0.5, fract((gl_FragCoord.x - gl_FragCoord.y)/cs));
+    float inkm = max(step(0.3, dk)*ln1, max(step(0.55, dk)*ln2, step(0.8, dk))); col = mix(col, mix(uC1, uC0, inkm), p_hatch); }
+  if (p_half > 0.5) { float cs = p_half*uPxS; vec2 fc = gl_FragCoord.xy, cell = (floor(fc/cs) + 0.5)*cs, cp = (cell/uRes - 0.5)*vec2(uOutAsp, 1.0); vec3 cc = tex(toVid(cp));
     float rad = sqrt(clamp(1.0 - lum(cc)*1.08, 0.0, 1.0))*cs*0.74, m = smoothstep(rad + 0.9, rad - 0.9, length(fc - cell)); col = mix(uC1, mix(uC0, cc, 0.3), m); }   // halftone print
-  if (uE.w > 0.5) { float cs = uE.w*uPxS; col = mix(uC0, uC1, step(bayer4(floor(gl_FragCoord.xy/cs)), lum(col))); }   // ordered dither
-  if (uG.x > 0.0) { vec3 pv = texture2D(uPrev, (vUv - 0.5)/uG.y + 0.5).rgb; col = max(col, pv*uG.x); }   // echo: last frame, slightly zoomed
-  col += (hash2(gl_FragCoord.xy + uTime*61.0) - 0.5)*uF.x*0.2;
-  col *= 1.0 - uF.y*0.4*(0.5 - 0.5*sin(gl_FragCoord.y/uPxS*3.14159));
-  col *= mix(1.0, smoothstep(1.15, 0.3, length((vUv - 0.5)*vec2(uOutAsp, 1.0))), uF.z);
-  if (abs(vUv.y - 0.5) > 0.5 - uF.w) col = vec3(0.0);
-  col += uH.w;
-  gl_FragColor = vec4(max(col, 0.0)*uVidA, 1.0);
+  if (p_riso > 0.5) { float cs = p_riso*uPxS; vec2 fc = gl_FragCoord.xy, mis = vec2(cs*0.35, cs*0.2); float a1 = 0.26, a2 = 1.31;
+    vec2 g1 = rot2(a1)*fc, g2 = rot2(a2)*(fc + mis), c1 = (floor(g1/cs) + 0.5)*cs, c2 = (floor(g2/cs) + 0.5)*cs;
+    vec3 s1 = tex(toVid((rot2(-a1)*c1/uRes - 0.5)*vec2(uOutAsp, 1.0))), s2 = tex(toVid(((rot2(-a2)*c2 - mis)/uRes - 0.5)*vec2(uOutAsp, 1.0)));
+    float d1 = sqrt(clamp(1.0 - lum(s1), 0.0, 1.0))*cs*0.72, d2 = sqrt(clamp(1.1 - s2.g*1.1 - 0.1, 0.0, 1.0))*cs*0.72;
+    float m1 = smoothstep(d1 + 0.9, d1 - 0.9, length(g1 - c1)), m2 = smoothstep(d2 + 0.9, d2 - 0.9, length(g2 - c2));
+    col = uC1*mix(vec3(1.0), uC0, m1)*mix(vec3(1.0), uC2, m2*0.9); }                      // two-ink risograph, misregistered
+  if (p_led > 0.5) { float cs = p_led*uPxS; vec2 fc = gl_FragCoord.xy, cell = (floor(fc/cs) + 0.5)*cs, cp = (cell/uRes - 0.5)*vec2(uOutAsp, 1.0); vec3 cc = tex(toVid(cp));
+    col = cc*smoothstep(cs*0.46 + 0.8, cs*0.46 - 0.8, length(fc - cell))*1.2; }            // LED panel
+  if (p_dith > 0.5) { float cs = p_dith*uPxS; col = mix(uC0, uC1, step(bayer4(floor(gl_FragCoord.xy/cs)), lum(col))); }
+  if (p_fb > 0.0) { vec3 pv = texture2D(uPrev, (vUv - 0.5)/p_fbz + 0.5).rgb; col = max(col, pv*p_fb); }   // echo
+  if (p_mosh > 0.0) { vec2 id = floor(gl_FragCoord.xy/(uPxS*48.0)); float h = hash2(id + floor(uTime*5.0));
+    if (h < p_mosh*0.5) { vec2 mv = (vec2(hash2(id + 1.3), hash2(id + 7.1)) - 0.5)*0.06; col = mix(col, texture2D(uPrev, vUv + mv).rgb, 0.92); } }   // datamosh: blocks hold the previous frame
+  if (p_leak > 0.0) { float t = uTime*0.35; vec2 u = vUv; float a = smoothstep(0.9, 0.0, length(u - vec2(0.15*sin(t), 0.35 + 0.25*cos(t*1.3)))), b = smoothstep(0.8, 0.0, length(u - vec2(1.0, 0.7 + 0.2*sin(t*0.8))));
+    col += (uC2*a + mix(uC2, vec3(1.0, 0.9, 0.7), 0.5)*b*0.8)*p_leak*(0.6 + 0.4*sin(uTime*1.7)); }   // light leaks, tinted by the palette
+  if (p_burn > 0.0) { float bp = pow(max(0.0, sin(uTime*1.3 + hash(floor(uTime*0.4))*6.0)), 6.0), mk = smoothstep(0.7, 0.0, vUv.x + 0.2*sin(vUv.y*6.0 + uTime)); col += mix(vec3(1.0, 0.5, 0.1), vec3(1.0, 0.92, 0.7), bp)*mk*bp*p_burn*1.2; }
+  if (p_dust > 0.0) { float x0 = hash(floor(uTime*12.0)), scr = smoothstep(0.0015, 0.0, abs(vUv.x - x0))*step(0.6, hash(floor(uTime*12.0) + 3.0)), dst = step(0.9985, hash2(floor(vUv*vec2(uOutAsp*220.0, 220.0)) + floor(uTime*18.0)));
+    col += (scr*0.5 + dst*0.8)*p_dust; col *= 1.0 - 0.06*p_dust*hash(floor(uTime*24.0)); }
+  if (p_vhs > 0.0) { col = mix(col, vec3(lum(col)), 0.15*p_vhs) + (hash2(vec2(floor(gl_FragCoord.y/(2.0*uPxS)), floor(uTime*30.0))) - 0.5)*0.12*p_vhs; }
+  col += (hash2(gl_FragCoord.xy + uTime*61.0) - 0.5)*p_grain*0.2;
+  col *= 1.0 - p_scan*0.4*(0.5 - 0.5*sin(gl_FragCoord.y/uPxS*3.14159));
+  if (p_crt > 0.0) { float m = mod(floor(gl_FragCoord.x/uPxS), 3.0); vec3 mk = vec3(m < 1.0 ? 1.0 : 0.62, abs(m - 1.0) < 0.5 ? 1.0 : 0.62, m > 1.5 ? 1.0 : 0.62); col *= mix(vec3(1.0), mk*1.25, p_crt*0.7); }
+  col *= mix(1.0, smoothstep(1.15, 0.3, length((vUv - 0.5)*vec2(uOutAsp, 1.0))), p_vig);
+  if (abs(vUv.y - 0.5) > 0.5 - p_bars) col = vec3(0.0);
+  col += p_flash;
+  gl_FragColor = vec4(max(col, 0.0)*p_vidA, 1.0);
 }`;
 const vidScene = new THREE.Scene(), blitScene = new THREE.Scene(), vidCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
 const VVS = 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }';
@@ -161,9 +213,10 @@ function renderGL(){
   renderer.setRenderTarget(rtA); renderer.clear(); renderer.render(vidScene, vidCam);
   blitMat.uniforms.uTex.value = rtA.texture;
   renderer.setRenderTarget(null); renderer.clear(); renderer.render(blitScene, vidCam);
-  if (ly('cloud') > 0.01) renderer.render(scene, camera);      // the point cloud is a light-only accent on top of the processed video
+  if (LA.cloud > 0.01) renderer.render(scene, camera);      // the point cloud is a light-only accent on top of the processed video
   const t = rtA; rtA = rtB; rtB = t;                           // rtB now holds the newest frame for the echo
 }
+function pushParams(v){ PNAMES.forEach((k, i) => { VU.uP.value[i >> 2].setComponent(i & 3, v[k]); }); }
 
 // ---------------------------------------------------------------- grid built from the video frame size
 let points = null, gw = 0, gh = 0, count = 0, aspect = 16 / 9, gscale = 1;
@@ -290,107 +343,6 @@ function displaced(i, out){
   return out.set(px, py, pz);
 }
 
-// ---------------------------------------------------------------- controls
-const bindRange = (id, fmt, fn) => { const el = $(id), o = el.parentElement.querySelector('output');
-  const upd = () => { o.textContent = fmt(+el.value); fn && fn(+el.value); }; el.addEventListener('input', upd); upd(); };
-const f2 = v => v.toFixed(2);
-bindRange('density', v => v, null); $('density').addEventListener('change', buildGrid);
-bindRange('bgThr', f2, applyBgUniforms); $('bgThr').addEventListener('change', pickTracked);
-$('bgRemove').onchange = () => { applyBgUniforms(); pickTracked(); };
-bindRange('depth', f2, v => U.uDepth.value = v);
-bindRange('size', f2, v => U.uSize.value = v);
-bindRange('depthY', f2, v => U.uDepthY.value = v);
-bindRange('scatter', f2); bindRange('wind', f2, v => U.uWind.value = v);
-bindRange('orbit', f2); bindRange('orbitN', String);
-bindRange('float', f2, v => U.uFloat.value = v);
-const FX = {fxPulse: 'uPulse', fxWave: 'uWave', fxMag: 'uMag', fxTurb: 'uTurb', fxScan: 'uScan'}, fxOn = {};
-function applyFx(id){
-  const on = !!fxOn[id], b = document.querySelector(`.sw[data-fx="${id}"]`);
-  U[FX[id]].value = on ? +$(id).value : 0;
-  if (b) { b.setAttribute('aria-pressed', on); b.textContent = on ? 'вкл' : 'выкл'; }
-  tlDirty = true;
-}
-document.querySelectorAll('.sw[data-fx]').forEach(b => b.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); const id = b.dataset.fx; fxOn[id] = !fxOn[id]; applyFx(id); }));
-Object.keys(FX).forEach(id => { fxOn[id] = 'init'; bindRange(id, f2, () => { if (fxOn[id] === 'init') return; fxOn[id] = true; applyFx(id); }); fxOn[id] = false; applyFx(id); });
-[['fxPulseN', 'uPulseN'], ['fxWaveL', 'uWaveL'], ['fxWaveN', 'uWaveN'], ['fxScanW', 'uScanW'], ['fxScanN', 'uScanN'], ['fxTurbN', 'uTurbN']]
-  .forEach(([id, u]) => bindRange(id, v => +$(id).step >= 1 ? String(v) : f2(v), v => U[u].value = v));
-bindRange('magR', v => v + '%'); bindRange('magN', String);
-$('fxWaveT').onchange = e => U.uWaveT.value = +e.target.value;
-$('magPol').onchange = e => U.uMagPol.value = +e.target.value;
-$('colorMode').onchange = e => U.uMode.value = +e.target.value;
-bindRange('tCount', v => v, pickTracked); bindRange('tSize', v => v); bindRange('lAlpha', f2);
-['tPick', 'tLinks'].forEach(id => $(id).onchange = pickTracked);
-$('tPickColor').addEventListener('input', pickTracked);
-$('reshuffle').onclick = () => { shuffleSeed++; pickTracked(); };
-$('format').onchange = layoutStage;
-document.querySelectorAll('.lbl').forEach(l => l.addEventListener('click', () => l.parentElement.classList.toggle('collapsed')));
-
-// camera
-let rotY = 0, rotX = 0, tRotY = 0, tRotX = 0, zoom = 1, tZoom = 1, baseZ = 600, dragging = false, px0 = 0, py0 = 0;
-const MAXY = 90 * DEG, MAXX = 50 * DEG;
-const setView = (y, x) => { tRotY = clamp(y, -MAXY, MAXY); tRotX = clamp(x, -MAXX, MAXX); };
-document.querySelectorAll('.cams button').forEach(b => b.onclick = () => setView(+b.dataset.y * DEG, +b.dataset.x * DEG));
-view.addEventListener('pointerdown', e => { dragging = true; px0 = e.clientX; py0 = e.clientY; view.setPointerCapture(e.pointerId); });
-view.addEventListener('pointermove', e => { if (!dragging) return; setView(tRotY + (e.clientX - px0) * 0.005, tRotX + (e.clientY - py0) * 0.004); px0 = e.clientX; py0 = e.clientY; });
-view.addEventListener('pointerup', () => dragging = false);
-view.addEventListener('dblclick', () => setView(0, 0));
-const joy = $('joy'), knob = $('knob'), JP = 11; let joyDrag = false;
-const joyAt = e => { const r = joy.getBoundingClientRect();
-  setView(-clamp((e.clientX - r.left - JP) / (r.width - 2 * JP) * 2 - 1, -1, 1) * MAXY, clamp((e.clientY - r.top - JP) / (r.height - 2 * JP) * 2 - 1, -1, 1) * MAXX); };
-joy.addEventListener('pointerdown', e => { joyDrag = true; joy.setPointerCapture(e.pointerId); joyAt(e); });
-joy.addEventListener('pointermove', e => joyDrag && joyAt(e));
-joy.addEventListener('pointerup', () => joyDrag = false);
-joy.addEventListener('dblclick', () => setView(0, 0));
-joy.addEventListener('keydown', e => { const s = 5 * DEG, m = {ArrowLeft: [s, 0], ArrowRight: [-s, 0], ArrowUp: [0, -s], ArrowDown: [0, s]}[e.key]; if (m) { e.preventDefault(); setView(tRotY + m[0], tRotX + m[1]); } });
-bindRange('zoom', v => f2(v) + '×', v => tZoom = v);
-function updateCam(){
-  rotY += (tRotY - rotY) * 0.12; rotX += (tRotX - rotX) * 0.12; zoom += (tZoom - zoom) * 0.12;
-  const jw = joy.clientWidth - 2 * JP, jh = joy.clientHeight - 2 * JP;
-  knob.style.left = (JP + (-tRotY / MAXY * 0.5 + 0.5) * jw) + 'px'; knob.style.top = (JP + (tRotX / MAXX * 0.5 + 0.5) * jh) + 'px';
-  $('angles').textContent = `Y ${Math.round(tRotY / DEG)}° · X ${Math.round(-tRotX / DEG)}°`;
-}
-
-// ---------------------------------------------------------------- scene timeline (driven by the video clock)
-const ease = v => { v = clamp(v, 0, 1); return v < 0.5 ? 4 * v * v * v : 1 - Math.pow(-2 * v + 2, 3) / 2; };
-function scatterBase(kind, t, C){
-  const u = t / C, m = +$('scatter').value;
-  switch (kind) {
-    case 'in': return m * (1 - ease((u - 0.05) / 0.7));
-    case 'out': return m * ease((u - 0.2) / 0.7);
-    case 'outin': return m * (u < 0.5 ? ease((u - 0.08) / 0.36) : 1 - ease((u - 0.56) / 0.36));
-    case 'inout': return m * (u < 0.5 ? 1 - ease((u - 0.04) / 0.38) : ease((u - 0.58) / 0.38));
-  }
-  return 0;
-}
-// Short clip: the scenario spans the whole clip. Long clip: it plays in windows of one effect cycle
-// (assemble at the start, scatter at the end, scatter-and-return in the middle), the rest stays assembled.
-function scatterAt(t, D){
-  const C = getCycle(), kind = $('scenario').value;
-  if (C >= D - 1e-6) return scatterBase(kind, t, D);
-  const endStart = D - C, midStart = (D - C) / 2;
-  if (kind === 'in') return t < C ? scatterBase('in', t, C) : 0;
-  if (kind === 'out') return t > endStart ? scatterBase('out', t - endStart, C) : 0;
-  if (kind === 'inout') return t < C ? scatterBase('in', t, C) : t > endStart ? scatterBase('out', t - endStart, C) : 0;
-  if (kind === 'outin') return t >= midStart && t <= midStart + C ? scatterBase('outin', t - midStart, C) : 0;
-  return 0;
-}
-const getDur = () => +$('dur').value, getStart = () => +$('tStart').value, getCycle = () => Math.max(0.5, Math.min(+$('cyc').value, getDur()));
-function applyScene(t){
-  const D = getDur(), C = getCycle(), stat = $('scenario').value === 'static', o = stat ? 0 : +$('orbit').value, ph = TAU * t / C;
-  U.uTime.value = t; U.uLoop.value = TAU / C;
-  const mv = +$('magN').value, a = mv >= 5 ? TAU * t / C * (mv - 4) : Math.PI * mv / 10 * (1 - Math.cos(TAU * t / C));
-  const hw = U.uWidth.value, hh = U.uHalfH.value, path = $('magPath').value, MP = U.uMagPos.value;
-  if (path === 'circle') MP.set(Math.cos(a) * hw * 0.55, Math.sin(a) * hh * 0.55, 30);
-  else if (path === 'eight') MP.set(Math.sin(a) * hw * 0.6, Math.sin(a * 2) * hh * 0.4, 30);
-  else if (path === 'sweep') MP.set(-Math.cos(a) * hw * 0.85, Math.sin(a * 2) * hh * 0.1, 30);
-  else MP.set(0, 0, 30);
-  U.uMagR.value = +$('magR').value / 100 * hw * 2;
-  U.uScatter.value = scatterAt(t, D);
-  U.uFloat.value = stat ? 0 : +$('float').value;
-  const po = ph * +$('orbitN').value;
-  group.rotation.y = rotY + Math.sin(po) * 0.45 * o; group.rotation.x = rotX + Math.sin(po * 2) * 0.08 * o;
-  group.updateMatrixWorld(); camera.position.z = baseZ / zoom;
-}
 
 // ---------------------------------------------------------------- sizing
 function fmtSize(){
@@ -422,24 +374,61 @@ function layoutStage(){
 addEventListener('resize', () => { if (!exporting) layoutStage(); });
 
 
-// ---------------------------------------------------------------- graphic layers (contours, nodes, links, dither, curtain, plotter lines)
-const lyOn = {nodes: false, links: false, dither: false, curtain: false, plot: false, glyph: false, glitch: false};
-const LA = {video: 0, cloud: 1, nodes: 0, links: 0, dither: 0, curtain: 0, plot: 0, glyph: 0, glitch: 0};
-let autoOn = false;
-const ly = k => k === 'video' ? (autoOn ? (LA.video || 0) : num('underlay')) : autoOn ? (LA[k] || 0) : (k === 'cloud' ? ($('cloudOn').checked ? 1 : 0) : (lyOn[k] ? 1 : 0));
-function toggleLayer(k){ if (autoOn) setAuto(false); if (k === 'cloud') $('cloudOn').checked = !$('cloudOn').checked; else lyOn[k] = !lyOn[k]; syncSwitches(); }
-document.querySelectorAll('.sw[data-ly]').forEach(b => b.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); toggleLayer(b.dataset.ly); }));
-function syncSwitches(){
-  document.querySelectorAll('.sw[data-ly]').forEach(b => { const on = ly(b.dataset.ly) > 0.5; b.setAttribute('aria-pressed', on); b.textContent = on ? 'вкл' : 'выкл'; });
-  tlDirty = true;
+
+// ---------------------------------------------------------------- shared controls, clip window, cloud scene
+const bindRange = (id, fmt, fn) => { const el = $(id), o = el.parentElement.querySelector('output');
+  const upd = () => { if (o) o.textContent = fmt(+el.value); fn && fn(+el.value); }; el.addEventListener('input', upd); upd(); };
+const f2 = v => v.toFixed(2);
+const fmtT = v => v.toFixed(1) + ' с';
+bindRange('density', v => v); $('density').addEventListener('change', () => buildGrid());
+bindRange('bgThr', f2, applyBgUniforms); $('bgThr').addEventListener('change', () => pickTracked());
+$('bgRemove').onchange = () => { applyBgUniforms(); pickTracked(); };
+['tPick', 'tLinks'].forEach(id => $(id).onchange = () => pickTracked());
+$('tPickColor').addEventListener('input', () => pickTracked());
+$('format').onchange = () => layoutStage();
+
+// camera of the point cloud (the video itself has its own camera inside the shader)
+let rotY = 0, rotX = 0, zoom = 1, baseZ = 600;
+const getDur = () => +$('dur').value, getStart = () => +$('tStart').value, getCycle = () => Math.max(0.5, Math.min(+$('cyc').value, getDur()));
+bindRange('tStart', fmtT); bindRange('dur', fmtT); bindRange('cyc', fmtT);
+
+// effects write these into the hidden controls that the layer code reads
+const GDEF = {nDens: 100, nThr: 0.22, nShape: 'bracket', nMin: 6, nMax: 28, nStroke: 1.3, nLabels: false, lMode: 'delaunay', lDist: 16, lConf: 0.15, lOp: 0.5, lW: 1,
+  dAlgo: 'atkinson', dPitch: 5, dThr: 0.5, dCon: 1.25, dPal: 'auto', dInv: false, dOp: 1, dBlend: 'source-over', cDir: 'down', cDens: 200, cLen: 35, cOp: 0.55,
+  pLines: 120, pCon: 1.7, pDef: 55, pSingle: true, pW: 1.1, pAnim: 0.5, pVig: 0, pCol: '#ffffff', gCols: 110, gOp: 0.85, geoColor: 'auto', geoBlend: 'source-over', xAmt: 0.7,
+  tCount: 0, tPick: 'even', tStyle: 'brackets', tSize: 6, tLabel: 'xyz', tLinks: 'chain', lAlpha: 0.35, tColor: 'white'};
+const gcache = {};
+function writeLegacy(W){
+  let tracker = false;
+  Object.keys(GDEF).forEach(k => {
+    const v = k in W ? W[k] : GDEF[k]; if (gcache[k] === v) return; gcache[k] = v;
+    const el = $(k); if (!el) return;
+    if (el.type === 'checkbox') el.checked = !!v; else el.value = v;
+    if (k === 'tCount' || k === 'tPick' || k === 'tLinks') tracker = true;
+  });
+  if (tracker && pix) pickTracked();
 }
-['underlay', 'gCols', 'gOp', 'xAmt', 'depthY', 'aGain', 'aBass', 'aMid', 'aHigh', 'aBeat', 'aScat', 'aFlash', 'nDens', 'nThr', 'nMin', 'nMax', 'nStroke', 'lDist', 'lConf', 'lOp', 'lW', 'dPitch', 'dThr', 'dCon', 'dOp', 'cDens', 'cLen', 'cOp', 'pLines', 'pCon', 'pDef', 'pW', 'pAnim', 'pVig']
-  .forEach(id => bindRange(id, v => Number.isInteger(+$(id).step) && +$(id).step >= 1 ? String(v) : f2(v)));
+// cloud uniforms, from the cloud effect's parameters plus the beat
+const CLOUD0 = {depth: 1, size: 1, colorMode: 5, orbit: 0.4, pulse: 0, turb: 0, burst: 0, depthY: 0.3};
+function applyCloud(t, c, A){
+  const C = getCycle(), ph = TAU * t / C;
+  U.uTime.value = t; U.uLoop.value = TAU / C; U.uMode.value = c.colorMode; U.uDepthY.value = c.depthY;
+  U.uDepth.value = c.depth * (1 + A.B * 0.6); U.uSize.value = c.size + A.K * 0.8;
+  U.uPulse.value = c.pulse + A.B * 0.5 * (c.pulse > 0 ? 1 : 0.4); U.uWave.value = A.M * 0.3 * (c.pulse > 0 ? 1 : 0.5); U.uTurb.value = c.turb + A.H * 0.4 * (c.turb > 0 ? 1 : 0.4);
+  U.uScatter.value = A.K * c.burst; U.uFloat.value = 0.3; U.uWind.value = 1;
+  group.rotation.y = rotY + Math.sin(ph) * 0.45 * c.orbit; group.rotation.x = rotX + Math.sin(ph * 2) * 0.08 * c.orbit;
+  group.updateMatrixWorld(); camera.position.z = baseZ / (zoom * (1 + A.K * 0.035));
+}
+
+// ---------------------------------------------------------------- graphic layers (contours, nodes, links, dither, curtain, plotter lines)
+const LA = {cloud: 0, nodes: 0, links: 0, dither: 0, curtain: 0, plot: 0, glyph: 0, glitch: 0};
+const ly = k => LA[k] || 0;
+bindRange('aGain', f2); bindRange('aBass', f2); bindRange('aMid', f2); bindRange('aHigh', f2); bindRange('aBeat', f2); bindRange('aScat', f2); bindRange('aFlash', f2);
 const num = id => { const v = +$(id).value, f = AM[id]; return f ? f(v) : v; };
 const PALETTES = {
   source: null, auto: [[63, 227, 242], [255, 77, 140]], cyan: [[63, 227, 242], [20, 120, 140]], solar: [[255, 190, 90], [255, 110, 40]], mono: [[240, 240, 240], [140, 140, 140]], violet: [[190, 150, 255], [110, 70, 220]],
 };
-const autoInks = () => { const a = PALETTES.auto[0], b = PALETTES.auto[1], h = c => '#' + c.map(v => Math.round(clamp(v, 0, 255)).toString(16).padStart(2, '0')).join(''); return [h(a.map(v => v * 0.45)), h(b.map(v => 215 + v * 0.14))]; };
+const autoInks = () => [hexOf(mixc(PAL.dark, PAL.accent, 0.25)), PAL.lightHex];
 const INKS = {cobalt: ['#1c36ff', '#ece8dc'], electric: ['#0a1cff', '#d8ff3a'], cyan: ['#0b8fa8', '#f4fbfb'], forest: ['#0f4a2c', '#eef0dc'], red: ['#e0261d', '#f3ece2'], mono: ['#0a0a0a', '#f2f2f2']};
 const hex2rgb = h => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
 
@@ -636,6 +625,7 @@ function composeFrame(ctx, w, h){
 }
 
 
+
 // ---------------------------------------------------------------- audio: decode the clip's track, find bands, hits, tempo, bars, sections
 const AH = 100;                           // analysis rate, values per second
 let AU = null, audioBuf = null;
@@ -713,28 +703,15 @@ function aAt(tv){
   AV.beatIdx = n; AV.beatPh = b - n; AV.beatInBar = (((n - AU.bar0) % 4) + 4) % 4; AV.bar = Math.floor((n - AU.bar0) / 4); AV.bpm = AU.bpm;
   return AV;
 }
-const fxBase = id => fxOn[id] ? +$(id).value : 0;
-function applyAudio(t){
-  const a = $('audOn').checked && AU ? aAt(getStart() + t) : (AV.on = false, AV), g = AV.on ? num('aGain') : 0;
-  const B = a.bass * num('aBass') * g, M = a.mid * num('aMid') * g, H = a.high * num('aHigh') * g, K = a.kick * num('aBeat') * g;
-  AV.B = B; AV.M = M; AV.H = H; AV.K = K;
-  U.uPulse.value = fxBase('fxPulse') + B * 0.5; U.uWave.value = fxBase('fxWave') + M * 0.35; U.uTurb.value = fxBase('fxTurb') + H * 0.4;
-  U.uScan.value = fxBase('fxScan') + (K > 0.15 ? K * 0.8 : 0); U.uSize.value = +$('size').value + K * 0.8; U.uDepth.value = +$('depth').value * (1 + B * 0.6);
-  if (g > 0) U.uScatter.value = Math.max(U.uScatter.value, K * num('aScat'));
-  camera.position.z = baseZ / (zoom * (1 + K * 0.035));
-  AM = {};
-  if (g > 0) {
-    AM.nDens = v => v * (1 + 0.7 * K); AM.nMax = v => v * (1 + 0.5 * K); AM.lOp = v => clamp(v + 0.4 * M, 0, 1); AM.cLen = v => v * (1 + 0.8 * B);
-    AM.pCon = v => v * (1 + 0.5 * B); AM.pAnim = v => v + 3 * H; AM.dThr = v => clamp(v + 0.12 * (a.hat - 0.3), 0.2, 0.8); AM.gSize = v => v * (1 + 0.5 * K);
-  }
-}
+
 // ---------------------------------------------------------------- HUD (markers, links, frame), drawn in target-frame pixels
 const v3 = new THREE.Vector3(), sgn = n => (n >= 0 ? '+' : '−') + Math.abs(n).toFixed(2);
 function drawHud(ctx, w, h){
   ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, w, h);
+  drawCam(ctx, w, h);
   if (!count) return;
   const k = Math.min(w, h) / 700, t = U.uTime.value, col = $('tColor').value === 'cyan' ? '63,227,242' : '235,248,252';
-  if ($('magShow').checked && U.uMag.value > 0) {
+  if (false) {
     const MP = U.uMagPos.value, c = v3.copy(MP).applyMatrix4(group.matrixWorld).project(camera), cx = (c.x * 0.5 + 0.5) * w, cy = (-c.y * 0.5 + 0.5) * h;
     const e = v3.copy(MP).setX(MP.x + U.uMagR.value).applyMatrix4(group.matrixWorld).project(camera), rr = Math.abs((e.x * 0.5 + 0.5) * w - cx);
     ctx.strokeStyle = 'rgba(63,227,242,.7)'; ctx.lineWidth = Math.max(1, k); ctx.setLineDash([4 * k, 4 * k]);
@@ -781,8 +758,8 @@ function drawHud(ctx, w, h){
     [[m, m, 1, 1], [w - m, m, -1, 1], [m, h - m, 1, -1], [w - m, h - m, -1, -1]].forEach(([x, y, a, b]) => { ctx.moveTo(x, y + L * b); ctx.lineTo(x, y); ctx.lineTo(x + L * a, y); });
     ctx.stroke(); ctx.fillStyle = 'rgba(160,220,235,.75)'; ctx.font = `${Math.round(10 * k)}px ui-monospace, Menlo, Consolas, monospace`; ctx.textBaseline = 'middle';
     ctx.fillText(`VIDEO·FIELD   ${count.toLocaleString('ru-RU')} PTS   T ${t.toFixed(2)}S` + (AV.on ? `   BPM ${AV.bpm.toFixed(0)}   BAR ${String(AV.bar + 1).padStart(3, '0')}.${AV.beatInBar + 1}` : ''), m + 8 * k, h - m - 12 * k);
-    if (autoOn && shot.n) {   // shot slate
-      const age = shot.t, al = clamp(1.4 - age / 1.8, 0, 1) * 0.9; if (al > 0.02) { ctx.fillStyle = `rgba(235,248,252,${al})`; ctx.textAlign = 'right'; ctx.fillText(`SHOT ${String(shot.i + 1).padStart(2, '0')}/${String(shot.n).padStart(2, '0')}   ${shot.name.toUpperCase()}`, w - m - 8 * k, m + 14 * k); ctx.textAlign = 'start'; }
+    if (shotInfo.n) {   // shot slate
+      const age = shotInfo.age, al = clamp(1.4 - age / 1.8, 0, 1) * 0.9; if (al > 0.02) { ctx.fillStyle = `rgba(235,248,252,${al})`; ctx.textAlign = 'right'; ctx.fillText(`SHOT ${String(shotInfo.i + 1).padStart(2, '0')}/${String(shotInfo.n).padStart(2, '0')}   ${shotInfo.name.toUpperCase()}`, w - m - 8 * k, m + 14 * k); ctx.textAlign = 'start'; }
     }
     if (AV.on) {   // scope: three band meters + four beat cells, bottom right
       const bx = w - m - 90 * k, by = h - m - 6 * k, bw = 14 * k;
@@ -793,54 +770,371 @@ function drawHud(ctx, w, h){
   }
 }
 
-// ---------------------------------------------------------------- video loading + playback
-let playing = true, objUrl = null;
-function playVideo(){ video.muted = !$('snd').checked; const r = video.play(); if (r && r.catch) r.catch(() => { video.muted = true; video.play().catch(() => {}); }); }
-const fmtT = v => v.toFixed(1) + ' с';
-bindRange('dur', fmtT); bindRange('tStart', fmtT); bindRange('cyc', fmtT);
-function syncLimits(){
-  const start = getStart(), maxD = Math.min(MAX_DUR, Math.max(0.5, vdur - start));
-  $('dur').max = maxD.toFixed(1); if (getDur() > maxD) $('dur').value = maxD.toFixed(1);
-  setOut('dur', fmtT(getDur()));
-}
-$('tStart').addEventListener('input', () => { syncLimits(); video.currentTime = getStart(); });
-$('dur').addEventListener('input', () => { if (video.currentTime > getStart() + getDur()) video.currentTime = getStart(); });
-$('play').onclick = () => { playing = !playing; if (hasVideo) playing ? playVideo() : video.pause();
-  $('play').textContent = playing ? '❚❚ Пауза' : '▶ Играть'; $('play').classList.toggle('on', playing); };
-$('time').addEventListener('input', e => { if (!hasVideo) return; video.currentTime = getStart() + +e.target.value * getDur() * 0.999; if (playing) $('play').click(); });
 
+// ---------------------------------------------------------------- one frame: audio -> shot stack -> shader, layers, cloud, HUD flags
+let shotInfo = {i: 0, n: 0, name: '', age: 0}, curHud = {}, curTv = 0, srcFps = 30;
+function computeAudio(tv){
+  const a = $('audOn').checked && AU ? aAt(tv) : (AV.on = false, AV), g = AV.on ? num('aGain') : 0;
+  AV.B = a.bass * num('aBass') * g; AV.M = a.mid * num('aMid') * g; AV.H = a.high * num('aHigh') * g; AV.K = a.kick * num('aBeat') * g;
+  AM = {};
+  if (g > 0) { const K = AV.K, M = AV.M, B = AV.B, H = AV.H;
+    AM.nDens = v => v * (1 + 0.7 * K); AM.nMax = v => v * (1 + 0.5 * K); AM.lOp = v => clamp(v + 0.4 * M, 0, 1); AM.cLen = v => v * (1 + 0.8 * B);
+    AM.pCon = v => v * (1 + 0.5 * B); AM.pAnim = v => v + 3 * H; AM.dThr = v => clamp(v + 0.12 * (a.hat - 0.3), 0.2, 0.8); }
+}
+function applyFrame(t){
+  const tv = getStart() + t; curTv = tv; computeAudio(tv);
+  const si = shots.length ? shotIndexAt(tv) : -1, sh = shots[si];
+  if (!sh) { pushParams(VPD); VU.uTime.value = tv; LA.cloud = 0; writeLegacy({}); curHud = {}; shotInfo = {i: 0, n: 0, name: '', age: 0}; return; }
+  const age = tv - sh.t0, react = sh.react ?? 1, A = {b: AV.B * react, m: AV.M * react, h: AV.H * react, k: AV.K * react, p: clamp(age / Math.max(0.1, sh.t1 - sh.t0), 0, 1), t: age, T: tv, ph: AV.beatPh};
+  const {V, C} = evalStack(sh, A, PAL), prev = si > 0 ? shots[si - 1] : null;
+  V.trans = prev && age < 0.9 ? Math.exp(-age / 0.17) : 0; V.ttype = prev ? +sh.enter : 0; if (V.ttype === 4) V.flash += 0.45 * V.trans;
+  const Lp = prev ? layersOf(prev) : {}, r = prev ? clamp(age / 0.15, 0, 1) : 1, e = r * r * (3 - 2 * r);
+  Object.keys(LA).forEach(k => { LA[k] = (C.L[k] || 0) * e + (Lp[k] || 0) * (1 - e); });
+  writeLegacy(C.W); curHud = C.hud; pushParams(V); VU.uTime.value = tv; VU.uCam.value.set(V.camx, V.camy);
+  applyCloud(t, C.cloud || (LA.cloud > 0.01 ? CLOUD0 : CLOUD0), AV);
+  shotInfo = {i: si, n: shots.length, name: PRESETS[sh.key] ? PRESETS[sh.key].name + (sh.edited ? ' *' : '') : 'Свой', age};
+}
+const fmtTC = v => { const m = Math.floor(v / 60), s = Math.floor(v % 60), f = Math.floor((v % 1) * srcFps); return `${m}:${String(s).padStart(2, '0')}:${String(f).padStart(2, '0')}`; };
+function drawCam(ctx, w, h){
+  const amt = curHud.cam; if (!amt || !hasVideo) return;
+  const k = Math.min(w, h) / 700, m = 26 * k; ctx.save(); ctx.globalAlpha = Math.min(1, amt); ctx.font = `700 ${Math.round(15 * k)}px ui-monospace, Menlo, Consolas, monospace`; ctx.textBaseline = 'middle';
+  ctx.shadowColor = 'rgba(0,0,0,.8)'; ctx.shadowBlur = 3 * k; ctx.strokeStyle = ctx.fillStyle = 'rgba(255,255,255,.92)'; ctx.lineWidth = Math.max(1.5, 1.6 * k);
+  [[m, m, 1, 1], [w - m, m, -1, 1], [m, h - m, 1, -1], [w - m, h - m, -1, -1]].forEach(([x, y, a, b]) => { ctx.beginPath(); ctx.moveTo(x, y + 22 * k * b); ctx.lineTo(x, y); ctx.lineTo(x + 22 * k * a, y); ctx.stroke(); });
+  if (Math.floor(curTv * 1.5) % 2 === 0) { ctx.fillStyle = '#ff2a2a'; ctx.beginPath(); ctx.arc(m + 14 * k, m + 30 * k, 6 * k, 0, TAU); ctx.fill(); }
+  ctx.fillStyle = 'rgba(255,255,255,.95)'; ctx.fillText('REC', m + 28 * k, m + 30 * k);
+  ctx.textAlign = 'right'; ctx.fillText(fmtTC(curTv), w - m - 6 * k, m + 30 * k);
+  ctx.textAlign = 'left'; ctx.fillText('PLAY ▶', m + 6 * k, h - m - 28 * k);
+  const bx = w - m - 44 * k, by = h - m - 36 * k; ctx.strokeRect(bx, by, 34 * k, 16 * k); ctx.fillRect(bx + 34 * k, by + 4 * k, 3 * k, 8 * k); for (let i = 0; i < 3; i++) ctx.fillRect(bx + 3 * k + i * 10 * k, by + 3 * k, 8 * k, 10 * k);
+  ctx.restore();
+}
+
+// ---------------------------------------------------------------- effect catalogue: every effect is a few numbers that change the shader / layers while the frame stays recognisable
+const CATS = {cam: ['Камера', 210], dist: ['Искажение кадра', 275], light: ['Свет', 42], color: ['Цвет и грейд', 330], print: ['Печать и графика', 150], tv: ['Плёнка и ТВ', 18], vol: ['Объём и схемы', 190]};
+const EFX = {};
+const NUM = (k, l, min, max, step, def) => ({k, l, min, max, step, def});
+const SEL = (k, l, opts, def) => ({k, l, opts, def});
+const AMT = (d = 0.6, l = 'Сила') => NUM('amt', l, 0, 1, 0.01, d);
+function fx(id, name, cat, desc, params, apply){ EFX[id] = {id, name, cat, desc, params, apply, defaults: Object.fromEntries(params.map(p => [p.k, p.def]))}; }
+const up = (V, k, x) => { V[k] += x; }, mx = (V, k, x) => { V[k] = Math.max(V[k], x); };
+const noise = (t, f) => Math.sin(t * f) + 0.6 * Math.sin(t * f * 1.9 + 1.3);
+
+// ---- camera
+fx('push', 'Наезд', 'cam', 'Медленно приближает или отдаляет кадр на протяжении шота.', [AMT(0.5), SEL('out', 'Куда', [[0, 'Вперёд'], [1, 'Назад']], 0)], (V, P, a) => { V.zoom *= 1 + P.amt * 0.2 * (P.out ? 1 - a.p : a.p); });
+fx('shake', 'Тряска', 'cam', 'Ручная камера: дрожь, сильнее на ударах.', [AMT(0.4)], (V, P, a) => { const k = 0.4 + a.k * 1.5; up(V, 'panx', noise(a.T, 43) * 0.006 * P.amt * k); up(V, 'pany', noise(a.T + 9, 37) * 0.006 * P.amt * k); up(V, 'rot', noise(a.T, 29) * 0.004 * P.amt * k); V.zoom *= 1 + 0.02 * P.amt; });
+fx('roll', 'Крен', 'cam', 'Кадр медленно качается из стороны в сторону.', [AMT(0.3)], (V, P, a) => { up(V, 'rot', P.amt * 0.25 * Math.sin(a.t * 0.8)); V.zoom *= 1 + 0.12 * P.amt; });
+fx('punch', 'Удар-зум', 'cam', 'Кадр подпрыгивает на каждом ударе.', [AMT(0.5)], (V, P, a) => { V.zoom *= 1 + P.amt * (0.04 + a.k * 0.14); });
+fx('lens', 'Линза', 'cam', 'Бочка, как у широкоугольника или рыбьего глаза.', [AMT(0.4)], (V, P, a) => { up(V, 'bulge', P.amt * 0.5 * (0.6 + a.k)); });
+fx('mirror', 'Зеркало', 'cam', 'Кадр отражается: лево-право, четверти или калейдоскоп.', [SEL('mode', 'Тип', [[1, 'Лево-право'], [2, 'Четверти'], [3, 'Калейдоскоп']], 1), NUM('seg', 'Сегментов', 3, 12, 1, 6)], (V, P, a) => { V.mirror = +P.mode; V.kseg = P.seg; if (+P.mode === 3) up(V, 'rot', a.t * 0.08); V.zoom *= 1.08; });
+fx('tile', 'Плитка', 'cam', 'Кадр повторяется сеткой маленьких экранов.', [SEL('n', 'Сетка', [[2, '2×2'], [3, '3×3'], [4, '4×4']], 2)], (V, P) => { V.tile = +P.n; });
+fx('ripple', 'Волна от удара', 'cam', 'От центра расходится кольцо, как от удара по воде.', [AMT(0.6)], (V, P, a) => { V.rip = Math.max(V.rip, P.amt * (0.5 + a.k * 1.2)); V.ripT = a.ph; });
+// ---- distortion
+fx('liquid', 'Жидкое стекло', 'dist', 'Картинка преломляет сама себя по яркости, как стекло или вода.', [AMT(0.55)], (V, P, a) => { up(V, 'self', P.amt * (0.03 + 0.06 * a.b)); up(V, 'warp', P.amt * 0.006 * (1 + a.m)); V.warpF = 9; V.warpS = 1.2; V.zoom *= 1.03; });
+fx('wave', 'Волна кадра', 'dist', 'Весь кадр идёт синусной волной.', [AMT(0.4), NUM('freq', 'Частота', 2, 40, 1, 12)], (V, P) => { up(V, 'warp', P.amt * 0.02); V.warpF = P.freq; V.warpS = 2; });
+fx('parallax', 'Параллакс', 'dist', 'Светлое и тёмное сдвигается на разную глубину: плоское видео становится объёмным.', [AMT(0.55)], (V, P, a) => { up(V, 'par', P.amt * 0.2 * (0.6 + a.b)); V.camx = Math.sin(a.t * 0.6) * 0.9; V.camy = Math.cos(a.t * 0.45) * 0.55; V.zoom *= 1.1; });
+fx('slices', 'Срезы', 'dist', 'Горизонтальные полосы сдвигаются, на ударах сильнее.', [AMT(0.5)], (V, P, a) => { mx(V, 'slice', P.amt * (0.05 + 0.2 * a.k)); });
+fx('mosh', 'Датамош', 'dist', 'Блоки «залипают» на предыдущем кадре, как битый поток.', [AMT(0.5)], (V, P) => { up(V, 'mosh', P.amt); });
+fx('pixelate', 'Мозаика', 'dist', 'Кадр рассыпается на пиксели и собирается на ударе.', [NUM('size', 'Размер', 0.008, 0.1, 0.002, 0.035)], (V, P, a) => { V.pix = P.size * (1 - 0.85 * a.k) + 0.005; });
+fx('pixsort', 'Пиксель-стрик', 'dist', 'Светлые пиксели вытягиваются вниз полосами.', [AMT(0.6)], (V, P) => { up(V, 'sort', P.amt); });
+fx('zblur', 'Зум-смаз', 'dist', 'Радиальный смаз к центру, будто камеру выстрелили вперёд.', [AMT(0.4)], (V, P, a) => { up(V, 'zb', P.amt * (0.4 + a.k)); });
+fx('mblur', 'Смаз движения', 'dist', 'Направленный смаз, как при быстром повороте.', [AMT(0.4), NUM('ang', 'Угол', 0, 3.14, 0.05, 0)], (V, P) => { up(V, 'mb', P.amt * 0.5); V.mba = P.ang; });
+fx('tilt', 'Тилт-шифт', 'dist', 'Верх и низ размыты, кадр выглядит как миниатюра.', [AMT(0.6)], (V, P) => { up(V, 'tilt', P.amt); });
+// ---- light
+fx('glow', 'Свечение', 'light', 'Яркие места светятся, на середине звука сильнее.', [AMT(0.5)], (V, P, a) => { up(V, 'glow', P.amt * (0.6 + 0.8 * a.m)); });
+fx('halation', 'Ореол (halation)', 'light', 'Яркие места дают мягкий ореол цвета акцента, как на плёнке.', [AMT(0.55)], (V, P) => { up(V, 'glow', P.amt * 0.9); mx(V, 'gtint', 0.85); });
+fx('streak', 'Анаморфный блик', 'light', 'Горизонтальные синие полосы от ярких источников.', [AMT(0.7)], (V, P, a) => { up(V, 'streak', P.amt * (0.7 + a.h)); });
+fx('leak', 'Утечки света', 'light', 'Тёплые засветы по краям, как у старой камеры.', [AMT(0.6)], (V, P) => { up(V, 'leak', P.amt); });
+fx('burn', 'Киноожог', 'light', 'Оранжево-белые вспышки плёнки слева.', [AMT(0.6)], (V, P) => { up(V, 'burn', P.amt); });
+fx('flash', 'Вспышка на бит', 'light', 'Кадр вспыхивает на каждом ударе.', [AMT(0.5)], (V, P, a) => { up(V, 'flash', a.k * P.amt * 0.35); });
+fx('strobe', 'Строб-негатив', 'light', 'На сильных ударах цвета на мгновение инвертируются.', [AMT(0.7)], (V, P, a) => { mx(V, 'neg', a.k > 0.55 ? P.amt : 0); });
+fx('neon', 'Неон-контуры', 'light', 'Затемняет кадр и подсвечивает контуры цветом палитры.', [AMT(0.9), NUM('dim', 'Затемнение', 0, 1, 0.01, 0.5)], (V, P, a) => { up(V, 'edge', P.amt * (0.8 + 1.2 * a.k)); V.exposure *= 1 - 0.45 * P.dim; V.contrast += 0.2 * P.amt; });
+// ---- colour
+fx('grade', 'Грейд (кино)', 'color', 'Тени и света подкрашены цветами палитры, лёгкий контраст.', [AMT(0.6)], (V, P) => { up(V, 'tone', P.amt); up(V, 'contrast', 0.12 * P.amt); V.sat *= 1 - 0.06 * P.amt; });
+fx('duo', 'Две краски', 'color', 'Весь кадр в двух цветах палитры: тёмный и светлый.', [AMT(0.6)], (V, P) => { mx(V, 'duo', P.amt); });
+fx('gmap', 'Градиент палитры', 'color', 'Яркость заменяется градиентом из цветов палитры.', [AMT(0.65)], (V, P) => { mx(V, 'gmap', P.amt); });
+fx('hue', 'Сдвиг оттенка', 'color', 'Оттенки поворачиваются по кругу, можно крутить во времени.', [NUM('amt', 'Сдвиг', 0, 1, 0.01, 0.3), NUM('speed', 'Скорость', 0, 1, 0.01, 0)], (V, P, a) => { up(V, 'hue', P.amt * 3.14 + P.speed * a.t * 0.5); });
+fx('chrome', 'Хром Y2K', 'color', 'Яркость превращается в жидкий металл, серебро и голубой.', [AMT(0.65)], (V, P) => { mx(V, 'chrome', P.amt); });
+fx('thermal', 'Тепловизор', 'color', 'Яркость окрашена как на тепловизоре.', [AMT(1)], (V, P) => { mx(V, 'thermal', P.amt); });
+fx('night', 'Ночное видение', 'color', 'Зелёный монохром ночного прицела.', [AMT(1)], (V, P) => { mx(V, 'night', P.amt); });
+fx('solar', 'Соляризация', 'color', 'Светлые тона переворачиваются, получается графичный негатив.', [AMT(0.8)], (V, P) => { mx(V, 'solar', P.amt); });
+fx('ana', 'Анаглиф 3D', 'color', 'Красно-голубое раздвоение, как в старых 3D-очках.', [AMT(0.5)], (V, P, a) => { up(V, 'ana', P.amt * (0.7 + a.k)); });
+fx('rgb', 'RGB-сдвиг', 'color', 'Цветовые каналы расходятся к краям, на ударах сильнее.', [AMT(0.4)], (V, P, a) => { up(V, 'ca', P.amt * (0.006 + 0.025 * a.k)); });
+fx('poster', 'Постер', 'color', 'Ограниченное число цветовых уровней.', [NUM('levels', 'Уровней', 2, 10, 1, 5)], (V, P) => { V.post = P.levels; });
+fx('bleach', 'Выбеливание', 'color', 'Выцветшие цвета и жёсткий контраст, кино про войну.', [AMT(0.7)], (V, P) => { V.sat *= 1 - 0.6 * P.amt; up(V, 'contrast', 0.35 * P.amt); V.exposure *= 0.96; });
+fx('bw', 'Чёрно-белое', 'color', 'Убирает цвет.', [AMT(1)], (V, P) => { V.sat *= 1 - P.amt; });
+fx('negative', 'Негатив', 'color', 'Инвертирует цвета.', [AMT(1)], (V, P) => { mx(V, 'neg', P.amt); });
+fx('tone', 'Свет и насыщенность', 'color', 'Экспозиция, контраст и насыщенность в одном месте.', [NUM('exp', 'Экспозиция', 0.4, 1.6, 0.01, 1), NUM('con', 'Контраст', 0.6, 1.8, 0.01, 1.1), NUM('sat', 'Насыщенность', 0, 2, 0.01, 1.2)], (V, P) => { V.exposure *= P.exp; V.contrast *= P.con; V.sat *= P.sat; });
+// ---- print & graphics
+fx('halftone', 'Полутон', 'print', 'Кадр из точек разного размера, как в газете. Краски из палитры.', [NUM('size', 'Размер, px', 4, 24, 1, 10)], (V, P, a) => { V.half = P.size * (1 + 0.3 * a.k); });
+fx('riso', 'Ризо (две краски)', 'print', 'Два слоя точек с лёгким смещением, как печать на ризографе.', [NUM('size', 'Размер, px', 4, 20, 1, 8)], (V, P) => { V.riso = P.size; });
+fx('dither', 'Дизеринг', 'print', 'Одноцветный кадр из узора точек, цвета из палитры.', [NUM('size', 'Зерно, px', 1, 8, 1, 3)], (V, P) => { V.dith = P.size; });
+fx('led', 'LED-экран', 'print', 'Кадр из светящихся пикселей-лампочек.', [NUM('size', 'Размер, px', 5, 24, 1, 10)], (V, P) => { V.led = P.size; });
+fx('comic', 'Комикс', 'print', 'Плакатные цвета и чёрные контуры.', [AMT(0.8)], (V, P) => { up(V, 'comic', P.amt); });
+fx('sketch', 'Скетч', 'print', 'Рисунок карандашом по контурам, цвета бумаги и туши из палитры.', [AMT(0.9)], (V, P) => { mx(V, 'sketch', P.amt); });
+fx('hatch', 'Штриховка', 'print', 'Тёмное закрашено диагональными линиями.', [AMT(0.9)], (V, P) => { mx(V, 'hatch', P.amt); });
+fx('glyph', 'ASCII-глифы', 'print', 'Кадр собирается из символов, яркое плотнее.', [AMT(1), NUM('cols', 'Колонок', 30, 220, 5, 110), NUM('vid', 'Видео под ним', 0, 1, 0.05, 0.3)], (V, P, a, C) => { C.L.glyph = P.amt; C.W.gCols = P.cols; V.vidA = Math.min(V.vidA, P.vid); });
+fx('plot', 'Плоттер-линии', 'print', 'Волнистые строки: чем темнее, тем гуще волна.', [AMT(1), NUM('lines', 'Линий', 40, 240, 2, 120), NUM('con', 'Контраст', 0.5, 4, 0.05, 1.7), NUM('vid', 'Видео под ним', 0, 1, 0.05, 0.3)], (V, P, a, C) => { C.L.plot = P.amt; C.W.pLines = P.lines; C.W.pCon = P.con; C.W.pCol = C.light; V.vidA = Math.min(V.vidA, P.vid); });
+fx('dither2', 'Печать (диффузия)', 'print', 'Тот же узор, но с растекающейся ошибкой (Atkinson, Floyd–Steinberg).', [AMT(1), SEL('algo', 'Алгоритм', [['atkinson', 'Atkinson'], ['fs', 'Floyd–Steinberg'], ['bayer', 'Bayer 4×4'], ['noise', 'Шум']], 'atkinson'), NUM('pitch', 'Зерно, px', 2, 16, 1, 5)], (V, P, a, C) => { C.L.dither = P.amt; C.W.dAlgo = P.algo; C.W.dPitch = P.pitch; V.vidA = 0; });
+// ---- film & TV
+fx('vhs', 'VHS', 'tv', 'Помехи ленты: дрожь строк, цветовое размазывание, полосы внизу.', [AMT(0.8)], (V, P) => { up(V, 'vhs', P.amt); });
+fx('crt', 'CRT-экран', 'tv', 'Выпуклый кинескоп с маской люминофора.', [AMT(0.8)], (V, P) => { mx(V, 'crt', P.amt); up(V, 'scan', 0.25 * P.amt); });
+fx('grain', 'Зерно', 'tv', 'Плёночное зерно.', [AMT(0.4)], (V, P) => { up(V, 'grain', P.amt); });
+fx('dust', 'Пыль и царапины', 'tv', 'Мелкая пыль, царапины и мерцание старой плёнки.', [AMT(0.6)], (V, P) => { up(V, 'dust', P.amt); });
+fx('scan', 'Строчки', 'tv', 'Горизонтальные линии развёртки.', [AMT(0.4)], (V, P) => { up(V, 'scan', P.amt); });
+fx('vig', 'Виньетка', 'tv', 'Затемнение по краям.', [AMT(0.5)], (V, P) => { up(V, 'vig', P.amt); });
+fx('bars', 'Кино-полосы', 'tv', 'Чёрные полосы сверху и снизу.', [NUM('amt', 'Высота', 0, 0.2, 0.005, 0.1)], (V, P) => { mx(V, 'bars', P.amt); });
+fx('echo', 'Эхо-шлейф', 'tv', 'Прошлые кадры тянутся шлейфом и слегка приближаются.', [AMT(0.85), NUM('zoom', 'Тоннель', 1, 1.04, 0.001, 1.012)], (V, P, a) => { mx(V, 'fb', P.amt); V.fbz = P.zoom + 0.012 * a.b; });
+fx('camcorder', 'Камкордер REC', 'tv', 'Красная точка REC, таймкод и значок батареи, как на старой цифровой камере.', [AMT(1)], (V, P, a, C) => { C.hud.cam = Math.max(C.hud.cam || 0, P.amt); up(V, 'grain', 0.12); up(V, 'vhs', 0.25 * P.amt); });
+// ---- volume & diagrams
+fx('cloud', 'Облако точек', 'vol', 'Видео распадается на объёмные точки с цветом картинки. Добавляется светом поверх кадра.',
+  [AMT(0.6, 'Яркость'), NUM('depth', 'Глубина', 0, 2.5, 0.05, 1.2), NUM('size', 'Точка', 0.4, 3, 0.05, 1), SEL('color', 'Цвет', [[0, 'Цвет видео'], [4, 'Карта глубины'], [5, 'Палитра']], 5), NUM('orbit', 'Облёт', 0, 1, 0.05, 0.4), NUM('pulse', 'Пульс', 0, 1, 0.05, 0.25), NUM('turb', 'Дрожь', 0, 1, 0.05, 0.2), NUM('burst', 'Разлёт на бит', 0, 1, 0.05, 0.2), NUM('vid', 'Видео под ним', 0, 1, 0.05, 0.4)],
+  (V, P, a, C) => { C.L.cloud = P.amt; C.cloud = {depth: P.depth, size: P.size, colorMode: +P.color, orbit: P.orbit, pulse: P.pulse, turb: P.turb, burst: P.burst, depthY: 0.3}; V.vidA = Math.min(V.vidA, P.vid); });
+fx('nodes', 'Узлы и фигуры', 'vol', 'Метки на сильнейших контурах кадра: уголки, круги, плюсы.', [AMT(1), NUM('dens', 'Плотность', 30, 300, 10, 90), SEL('shape', 'Форма', [['bracket', 'Уголки'], ['circle', 'Круг'], ['square', 'Квадрат'], ['diamond', 'Ромб'], ['cross', 'Плюс'], ['mixed', 'Смесь']], 'bracket')], (V, P, a, C) => { C.L.nodes = P.amt; C.W.nDens = P.dens; C.W.nShape = P.shape; });
+fx('links', 'Связи', 'vol', 'Линии между узлами: сеть Delaunay, соседи, цепочка.', [AMT(1), SEL('mode', 'Способ', [['delaunay', 'Сеть Delaunay'], ['proximity', 'Соседи'], ['chain', 'Цепочка'], ['radial', 'Радиально'], ['hybrid', 'Комбинация']], 'delaunay'), NUM('dist', 'Дистанция', 4, 40, 1, 16)], (V, P, a, C) => { C.L.links = P.amt; C.W.lMode = P.mode; C.W.lDist = P.dist; });
+fx('curtain', 'Завеса света', 'vol', 'Цвет сильных контуров вытягивается по вертикали, как светящиеся шторы.', [AMT(0.7), SEL('dir', 'Куда', [['down', 'Вниз'], ['up', 'Вверх'], ['both', 'В обе']], 'down'), NUM('len', 'Длина, %', 10, 80, 1, 40)], (V, P, a, C) => { C.L.curtain = P.amt; C.W.cDir = P.dir; C.W.cLen = P.len; });
+fx('track', 'Трек-метки', 'vol', 'Подписанные метки на точках кадра, на биты загораются по очереди.', [NUM('count', 'Количество', 1, 30, 1, 8), SEL('style', 'Вид', [['brackets', 'Уголки'], ['cross', 'Перекрестье'], ['ring', 'Кольцо'], ['square', 'Квадрат'], ['dot', 'Точка']], 'brackets'), SEL('label', 'Подписи', [['xyz', 'Номер + XYZ'], ['num', 'Номер'], ['hex', 'Номер + цвет'], ['none', 'Нет']], 'num')], (V, P, a, C) => { C.W.tCount = P.count; C.W.tStyle = P.style; C.W.tLabel = P.label; });
+
+// ---------------------------------------------------------------- looks: ready-made stacks, the director picks from these and the user can start from them
+const L = (id, o) => [id, o || {}];
+const PRESETS = {
+  film:      {name: 'Кино', fam: 'g', enter: 4, lv: [3, 1.5, 0], stack: [L('grade', {amt: 0.6}), L('push', {amt: 0.5}), L('glow', {amt: 0.15}), L('grain', {amt: 0.35}), L('vig', {amt: 0.5}), L('bars', {amt: 0.095})]},
+  dream:     {name: 'Мечта', fam: 'g', enter: 4, lv: [2.5, 1, 0], stack: [L('halation', {amt: 0.8}), L('glow', {amt: 0.5}), L('leak', {amt: 0.55}), L('tilt', {amt: 0.5}), L('push', {amt: 0.3}), L('grain', {amt: 0.2})]},
+  y2k:       {name: 'Y2K', fam: 'g', enter: 4, lv: [1.5, 2.5, 1], stack: [L('chrome', {amt: 0.6}), L('streak', {amt: 0.8}), L('glow', {amt: 0.55}), L('rgb', {amt: 0.3}), L('grain', {amt: 0.15})]},
+  burnreel:  {name: 'Киноплёнка', fam: 'g', enter: 4, lv: [1, 2, 1], stack: [L('burn', {amt: 0.7}), L('leak', {amt: 0.55}), L('dust', {amt: 0.8}), L('halation', {amt: 0.55}), L('grain', {amt: 0.6}), L('shake', {amt: 0.25})]},
+  liquid:    {name: 'Жидкое стекло', fam: 'w', enter: 2, lv: [2.5, 2.5, 1.2], stack: [L('liquid', {amt: 0.6}), L('glow', {amt: 0.4}), L('rgb', {amt: 0.3}), L('vig', {amt: 0.3}), L('roll', {amt: 0.15})]},
+  parallax:  {name: 'Параллакс', fam: 'w', enter: 1, lv: [2.5, 2, 0], stack: [L('parallax', {amt: 0.6}), L('grade', {amt: 0.4}), L('glow', {amt: 0.25}), L('vig', {amt: 0.55}), L('grain', {amt: 0.14})]},
+  neon:      {name: 'Неон-контур', fam: 'l', enter: 4, lv: [1, 2.5, 2], stack: [L('neon', {amt: 0.9, dim: 0.5}), L('glow', {amt: 0.7}), L('rgb', {amt: 0.3}), L('vig', {amt: 0.5}), L('scan', {amt: 0.12})]},
+  echo:      {name: 'Эхо', fam: 'l', enter: 4, lv: [2, 1.5, 1.2], stack: [L('echo', {amt: 0.88}), L('glow', {amt: 0.6}), L('gmap', {amt: 0.3}), L('rgb', {amt: 0.3}), L('vig', {amt: 0.4})]},
+  tunnel:    {name: 'Тоннель', fam: 'l', enter: 2, lv: [0, 1.2, 2.5], stack: [L('echo', {amt: 0.9, zoom: 1.025}), L('zblur', {amt: 0.5}), L('hue', {amt: 0.1, speed: 0.4}), L('glow', {amt: 0.6}), L('rgb', {amt: 0.4})]},
+  grunge:    {name: 'Гранж', fam: 'v', enter: 3, lv: [0, 2.5, 2], stack: [L('bleach', {amt: 0.6}), L('grain', {amt: 0.8}), L('dust', {amt: 0.8}), L('halation', {amt: 0.5}), L('shake', {amt: 0.4}), L('scan', {amt: 0.2}), L('vig', {amt: 0.7}), L('slices', {amt: 0.15})]},
+  vhs:       {name: 'VHS', fam: 'v', enter: 3, lv: [0, 2.5, 1.5], stack: [L('vhs', {amt: 0.8}), L('scan', {amt: 0.3}), L('rgb', {amt: 0.4}), L('grain', {amt: 0.3}), L('camcorder', {amt: 1})]},
+  crt:       {name: 'CRT', fam: 'v', enter: 4, lv: [0, 1.5, 1], stack: [L('crt', {amt: 0.85}), L('rgb', {amt: 0.3}), L('glow', {amt: 0.3}), L('grain', {amt: 0.15})]},
+  thermal:   {name: 'Тепловизор', fam: 'v', enter: 4, lv: [0, 1.5, 1], stack: [L('thermal', {amt: 1}), L('glow', {amt: 0.3}), L('grain', {amt: 0.3}), L('vig', {amt: 0.5}), L('scan', {amt: 0.15})]},
+  night:     {name: 'Ночное видение', fam: 'v', enter: 4, lv: [0, 1.3, 0.8], stack: [L('night', {amt: 1}), L('grain', {amt: 0.5}), L('vig', {amt: 0.7}), L('scan', {amt: 0.2}), L('camcorder', {amt: 0.8})]},
+  riso:      {name: 'Ризо', fam: 'p', enter: 3, lv: [0.5, 2, 1.5], stack: [L('riso', {size: 7}), L('grain', {amt: 0.25}), L('push', {amt: 0.3})]},
+  halftone:  {name: 'Полутон', fam: 'p', enter: 3, lv: [0, 2, 2.5], stack: [L('halftone', {size: 9}), L('push', {amt: 0.3})]},
+  comic:     {name: 'Комикс', fam: 'p', enter: 3, lv: [0, 1.5, 1.5], stack: [L('comic', {amt: 0.85}), L('poster', {levels: 5}), L('tone', {exp: 1, con: 1.1, sat: 1.35})]},
+  sketch:    {name: 'Скетч', fam: 'p', enter: 4, lv: [0.5, 1.5, 0.5], stack: [L('sketch', {amt: 0.9}), L('grain', {amt: 0.2})]},
+  hatch:     {name: 'Штриховка', fam: 'p', enter: 4, lv: [0, 1.2, 1], stack: [L('hatch', {amt: 0.9}), L('push', {amt: 0.3})]},
+  led:       {name: 'LED-экран', fam: 'p', enter: 3, lv: [0, 1, 2], stack: [L('led', {size: 9}), L('glow', {amt: 0.4})]},
+  mosaic:    {name: 'Мозаика', fam: 'p', enter: 3, lv: [0, 1.5, 2.5], stack: [L('pixelate', {size: 0.035}), L('poster', {levels: 6}), L('gmap', {amt: 0.4})]},
+  plotter:   {name: 'Плоттер', fam: 'p', enter: 1, lv: [0.5, 1.2, 1], stack: [L('plot', {lines: 130})]},
+  ascii:     {name: 'ASCII', fam: 'p', enter: 4, lv: [0.5, 1.2, 1.5], stack: [L('glyph', {cols: 110})]},
+  mirror:    {name: 'Зеркало', fam: 'k', enter: 2, lv: [1, 1.5, 2.5], stack: [L('mirror', {mode: 1}), L('gmap', {amt: 0.3}), L('rgb', {amt: 0.3}), L('vig', {amt: 0.35})]},
+  kaleido:   {name: 'Калейдоскоп', fam: 'k', enter: 2, lv: [0, 1.2, 2.5], stack: [L('mirror', {mode: 3, seg: 8}), L('hue', {amt: 0.2, speed: 0.3}), L('gmap', {amt: 0.35}), L('glow', {amt: 0.3})]},
+  drop:      {name: 'Дроп', fam: 'x', enter: 2, lv: [0, 0.5, 3.5], stack: [L('punch', {amt: 0.8}), L('rgb', {amt: 0.8}), L('slices', {amt: 0.7}), L('flash', {amt: 0.6}), L('glow', {amt: 0.8}), L('lens', {amt: 0.4}), L('ripple', {amt: 0.5}), L('echo', {amt: 0.25})]},
+  glitch:    {name: 'Рваная лента', fam: 'x', enter: 3, lv: [0, 1.2, 3], stack: [L('slices', {amt: 0.8}), L('mosh', {amt: 0.6}), L('rgb', {amt: 0.8}), L('vhs', {amt: 0.4}), L('scan', {amt: 0.4}), L('grain', {amt: 0.5})]},
+  strobe:    {name: 'Строб', fam: 'x', enter: 3, lv: [0, 0.6, 2.5], stack: [L('strobe', {amt: 0.8}), L('punch', {amt: 0.6}), L('rgb', {amt: 0.5}), L('zblur', {amt: 0.4}), L('flash', {amt: 0.5})]},
+  shock:     {name: 'Шоковая волна', fam: 'x', enter: 2, lv: [0, 0.8, 2.5], stack: [L('ripple', {amt: 1}), L('lens', {amt: 0.5}), L('rgb', {amt: 0.7}), L('punch', {amt: 0.7}), L('glow', {amt: 0.6})]},
+  anaglyph:  {name: '3D-анаглиф', fam: 'x', enter: 3, lv: [0, 1, 2], stack: [L('ana', {amt: 0.7}), L('punch', {amt: 0.5}), L('slices', {amt: 0.3})]},
+  pixsort:   {name: 'Пиксель-стрик', fam: 'x', enter: 3, lv: [0, 1.5, 1.5], stack: [L('pixsort', {amt: 0.7}), L('glow', {amt: 0.3}), L('rgb', {amt: 0.3})]},
+  volume:    {name: 'Объём', fam: 'o', enter: 1, lv: [2, 1.5, 1], stack: [L('cloud', {amt: 0.55, color: 5}), L('parallax', {amt: 0.3}), L('glow', {amt: 0.3}), L('vig', {amt: 0.4})]},
+  blueprint: {name: 'Схема', fam: 'o', enter: 4, lv: [0.8, 1, 0.5], stack: [L('gmap', {amt: 0.85}), L('neon', {amt: 0.7, dim: 0.4}), L('nodes', {dens: 100}), L('links', {mode: 'delaunay'}), L('track', {count: 7, label: 'xyz'})]},
+  curtain:   {name: 'Свет', fam: 'o', enter: 4, lv: [1.5, 2, 1.5], stack: [L('curtain', {amt: 0.7}), L('glow', {amt: 0.3}), L('grade', {amt: 0.3})]},
+};
+// ---- shot stacks -> shader parameters
+function stackOf(key){ const pr = PRESETS[key]; return pr.stack.map(([id, p]) => ({id, on: true, p: {...EFX[id].defaults, ...p}})); }
+function evalStack(sh, a, pal){
+  const V = {...VPD}, C = {L: {}, W: {}, hud: {}, cloud: null, light: pal.lightHex};
+  for (const it of sh.stack) { if (it.on === false) continue; const d = EFX[it.id]; if (d) d.apply(V, {...d.defaults, ...it.p}, a, C); }
+  return {V, C};
+}
+function layersOf(sh){ const L2 = {}; for (const it of sh.stack) { if (it.on === false) continue; const d = EFX[it.id]; if (!d) continue; const P = {...d.defaults, ...it.p};
+  if (it.id === 'glyph') L2.glyph = P.amt; else if (it.id === 'plot') L2.plot = P.amt; else if (it.id === 'dither2') L2.dither = P.amt; else if (it.id === 'cloud') L2.cloud = P.amt; else if (it.id === 'nodes') L2.nodes = P.amt; else if (it.id === 'links') L2.links = P.amt; else if (it.id === 'curtain') L2.curtain = P.amt; } return L2; }
+
+// ---------------------------------------------------------------- palette from the video, shots, director, undo
+const rgb2hsl = ([r, g, b]) => { const mx2 = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx2 + mn) / 2, d = mx2 - mn; let h = 0, s = 0;
+  if (d > 1e-6) { s = d / (1 - Math.abs(2 * l - 1)); h = mx2 === r ? ((g - b) / d) % 6 : mx2 === g ? (b - r) / d + 2 : (r - g) / d + 4; h = (h * 60 + 360) % 360; } return [h, s, l]; };
+const hsl2rgb = (h, sa, l) => { const a = sa * Math.min(l, 1 - l), f = n => { const k = (n + h / 30) % 12; return l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1)); }; return [f(0), f(8), f(4)]; };
+const mixc = (a, b, t) => a.map((v, i) => v + (b[i] - v) * t);
+const lumc = c => 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2];
+const hexOf = c => '#' + c.map(v => Math.round(clamp(v, 0, 1) * 255).toString(16).padStart(2, '0')).join('');
+const unhex = h => [parseInt(h.slice(1, 3), 16) / 255, parseInt(h.slice(3, 5), 16) / 255, parseInt(h.slice(5, 7), 16) / 255];
+const ROLES = [['dark', 'Тени'], ['mid', 'Середина'], ['light', 'Света'], ['accent', 'Акцент'], ['accent2', 'Второй акцент']];
+let PAL = {dark: [0.03, 0.04, 0.09], mid: [0.3, 0.32, 0.42], light: [0.96, 0.94, 0.9], accent: [0.25, 0.9, 0.95], accent2: [1, 0.3, 0.55], lightHex: '#f5f0e6'};
+function setPalette(p, fromUser){
+  PAL = {...PAL, ...p}; PAL.lightHex = hexOf(PAL.light);
+  VU.uC0.value.set(...PAL.dark); VU.uC1.value.set(...PAL.light); VU.uC2.value.set(...PAL.accent); VU.uC3.value.set(...PAL.mid);
+  PALETTES.auto = [PAL.accent.map(v => Math.round(v * 255)), PAL.accent2.map(v => Math.round(v * 255))]; U.uP0.value.set(...PAL.accent); U.uP1.value.set(...PAL.accent2);
+  const root = document.documentElement.style, ac = hexOf(PAL.accent); root.setProperty('--accent', ac); root.setProperty('--accent2', hexOf(PAL.accent2)); root.setProperty('--ink', lumc(PAL.accent) > 0.5 ? '#050709' : '#f4f7f8');
+  ROLES.forEach(([k]) => { const el = $('pal_' + k); if (el) el.value = hexOf(PAL[k]); });
+  const bar = $('palBar'); if (bar) bar.style.background = `linear-gradient(90deg, ${ROLES.map(([k]) => hexOf(PAL[k])).join(',')})`;
+}
+function kmeans(px, k){
+  const stride = Math.max(1, Math.floor(px.length / 4000)), P = px.filter((_, i) => i % stride === 0), C = [P[Math.floor(P.length / 2)].slice()];
+  const d2 = (a, b) => (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2;
+  while (C.length < k) { let bi = 0, bd = -1; P.forEach((p, i) => { const d = Math.min(...C.map(c => d2(p, c))); if (d > bd) { bd = d; bi = i; } }); C.push(P[bi].slice()); }
+  let cnt = new Array(k).fill(0);
+  for (let it = 0; it < 8; it++) {
+    const sum = C.map(() => [0, 0, 0]); cnt = new Array(k).fill(0);
+    P.forEach(p => { let bi = 0, bd = 1e9; C.forEach((c, i) => { const d = d2(p, c); if (d < bd) { bd = d; bi = i; } }); cnt[bi]++; sum[bi][0] += p[0]; sum[bi][1] += p[1]; sum[bi][2] += p[2]; });
+    C.forEach((c, i) => { if (cnt[i]) { c[0] = sum[i][0] / cnt[i]; c[1] = sum[i][1] / cnt[i]; c[2] = sum[i][2] / cnt[i]; } });
+  }
+  return C.map((c, i) => ({c, n: cnt[i]})).filter(x => x.n > 0);
+}
+function paletteFrom(px){
+  if (px.length < 30) return;
+  const cl = kmeans(px, 6), tot = cl.reduce((a, b) => a + b.n, 0), satOf = c => { const mxv = Math.max(...c), mnv = Math.min(...c); return mxv > 0.001 ? (mxv - mnv) / mxv : 0; };
+  const byL = [...cl].sort((a, b) => lumc(a.c) - lumc(b.c)), score = x => satOf(x.c) * (0.35 + Math.sqrt(x.n / tot)) * (lumc(x.c) > 0.08 ? 1 : 0.3);
+  let acc = [...cl].sort((a, b) => score(b) - score(a))[0], colored = acc && satOf(acc.c) > 0.18;
+  let accent, accent2;
+  if (colored) {
+    const [h1, s1, l1] = rgb2hsl(acc.c); accent = hsl2rgb(h1, clamp(s1, 0.6, 0.95), clamp(l1, 0.5, 0.62));
+    const far = cl.filter(x => { const [h] = rgb2hsl(x.c), d = Math.min((h - h1 + 360) % 360, (h1 - h + 360) % 360); return d >= 40 && satOf(x.c) > 0.2; }).sort((a, b) => score(b) - score(a))[0];
+    accent2 = far ? (() => { const [h2, s2, l2] = rgb2hsl(far.c); return hsl2rgb(h2, clamp(s2, 0.55, 0.95), clamp(l2, 0.52, 0.64)); })() : hsl2rgb((h1 + 150) % 360, 0.75, 0.6);
+  } else { accent = hsl2rgb(190, 0.8, 0.58); accent2 = hsl2rgb(335, 0.75, 0.62); }
+  let dark = byL[0].c, light = byL[byL.length - 1].c;
+  dark = mixc(dark, [0.02, 0.02, 0.05], 0.45); if (lumc(dark) > 0.2) dark = dark.map(v => v * 0.2 / lumc(dark));
+  light = mixc(light, [1, 1, 1], 0.55);
+  const mid = (cl.filter(x => x.c !== byL[0].c && x.c !== byL[byL.length - 1].c).sort((a, b) => Math.abs(lumc(a.c) - 0.45) - Math.abs(lumc(b.c) - 0.45))[0] || {c: mixc(dark, light, 0.5)}).c;
+  setPalette({dark, mid: mixc(mid, dark, 0.15), light, accent, accent2});
+}
+
+// ---------------------------------------------------------------- reading the picture: brightness, contours, colour, motion + palette
+let VT = null;
+async function visualAnalyse(){
+  const st = getStart(), D = getDur(), N = 8, Wc = 64, Hc = Math.max(16, Math.round(64 / aspect));
+  const c = document.createElement('canvas'); c.width = Wc; c.height = Hc; const x = c.getContext('2d', {willReadFrequently: true});
+  const grab = () => { x.drawImage(video, 0, 0, Wc, Hc); return x.getImageData(0, 0, Wc, Hc).data; };
+  const was = playing; video.pause();
+  let lum = 0, con = 0, edge = 0, sat = 0, mot = 0; const pxs = [];
+  for (let n = 0; n < N; n++) {
+    const ts = st + (n + 0.5) / N * D;
+    await seekTo(Math.min(ts, vdur - 0.25)); const a = grab();
+    await seekTo(Math.min(ts + 0.15, vdur - 0.05)); const b = grab();
+    const Lm = new Float32Array(Wc * Hc); let m = 0, m2 = 0, sa = 0, mo = 0;
+    for (let i = 0; i < Wc * Hc; i++) {
+      const r = a[i * 4] / 255, g = a[i * 4 + 1] / 255, bl = a[i * 4 + 2] / 255, mxv = Math.max(r, g, bl), mnv = Math.min(r, g, bl), l = 0.299 * r + 0.587 * g + 0.114 * bl;
+      Lm[i] = l; m += l; m2 += l * l; sa += mxv > 0.001 ? (mxv - mnv) / mxv : 0; if (i % 3 === 0) pxs.push([r, g, bl]);
+      mo += Math.abs(l - (0.299 * b[i * 4] + 0.587 * b[i * 4 + 1] + 0.114 * b[i * 4 + 2]) / 255);
+    }
+    let e = 0; for (let y = 0; y < Hc - 1; y++) for (let xx = 0; xx < Wc - 1; xx++) { const i = y * Wc + xx; e += Math.abs(Lm[i + 1] - Lm[i]) + Math.abs(Lm[i + Wc] - Lm[i]); }
+    const nn = Wc * Hc; lum += m / nn; con += Math.sqrt(Math.max(0, m2 / nn - (m / nn) ** 2)); edge += e / nn; sat += sa / nn; mot += mo / nn;
+  }
+  await seekTo(st); if (was) playVideo();
+  paletteFrom(pxs);
+  VT = {lum: lum / N, contrast: con / N, edge: edge / N, sat: sat / N, motion: mot / N};
+  return VT;
+}
+
+// ---------------------------------------------------------------- shots
+let shots = [], selShot = 0, selFx = -1, shotUid = 1, markers = [], snapOn = true, seed = 1;
+const hist = [], redoStack = [];
+const mkShot = (t0, t1, level, key) => ({id: shotUid++, t0, t1, level, key, stack: stackOf(key), edited: false, react: 1, enter: PRESETS[key].enter});
+const snapshot = () => JSON.stringify({shots, markers, selShot, selFx});
+function pushUndo(){ hist.push(snapshot()); if (hist.length > 80) hist.shift(); redoStack.length = 0; }
+function restore(js){ const o = JSON.parse(js); shots = o.shots; markers = o.markers; selShot = Math.min(o.selShot, shots.length - 1); selFx = o.selFx; shotUid = Math.max(shotUid, ...shots.map(s => s.id + 1)); uiDirty(); }
+function undo(){ if (!hist.length) return; redoStack.push(snapshot()); restore(hist.pop()); status('Отмена.'); }
+function redo(){ if (!redoStack.length) return; hist.push(snapshot()); restore(redoStack.pop()); status('Повтор.'); }
+const shotIndexAt = tv => { const i = shots.findIndex(s => tv >= s.t0 && tv < s.t1); return i < 0 ? (tv < (shots[0] ? shots[0].t0 : 0) ? 0 : shots.length - 1) : i; };
+const snapT = t => { if (!snapOn || !AU) return t; const n = Math.round((t - AU.off) / AU.beatLen); return Math.max(0, AU.off + n * AU.beatLen); };
+function splitAt(tv){
+  const i = shotIndexAt(tv), s = shots[i]; if (!s) return;
+  const t = clamp(snapT(tv), s.t0 + 0.2, s.t1 - 0.2); if (t - s.t0 < 0.19 || s.t1 - t < 0.19) { status('Шот слишком короткий для разреза.'); return; }
+  pushUndo();
+  const b = JSON.parse(JSON.stringify(s)); b.id = shotUid++; b.t0 = t; s.t1 = t; s.edited = true; b.edited = true;
+  shots.splice(i + 1, 0, b); selShot = i + 1; selFx = -1; uiDirty(); status(`Разрез на ${fmtTC(t)}.`);
+}
+function mergePrev(i){
+  if (i <= 0 || !shots[i]) { status('Нет шота слева, чтобы склеить.'); return; }
+  pushUndo(); shots[i - 1].t1 = shots[i].t1; shots[i - 1].edited = true; shots.splice(i, 1); selShot = i - 1; selFx = -1; uiDirty(); status('Шоты склеены.');
+}
+function moveCut(i, t){ const a = shots[i - 1], b = shots[i]; if (!a || !b) return; t = clamp(t, a.t0 + 0.2, b.t1 - 0.2); a.t1 = b.t0 = t; a.edited = b.edited = true; }
+function usePreset(i, key){ const s = shots[i]; if (!s) return; pushUndo(); s.key = key; s.stack = stackOf(key); s.enter = PRESETS[key].enter; s.edited = true; selFx = -1; uiDirty(); status(`Образ «${PRESETS[key].name}» на шот ${i + 1}.`); }
+function addEffect(id, all){
+  if (!shots.length) return; pushUndo();
+  (all ? shots : [shots[selShot]]).forEach(s => { s.stack.push({id, on: true, p: {...EFX[id].defaults}}); s.edited = true; });
+  selFx = shots[selShot].stack.length - 1; uiDirty(); status(`«${EFX[id].name}» ${all ? 'добавлен ко всему клипу' : 'добавлен в шот ' + (selShot + 1)}.`);
+}
+function removeEffect(i, k){ const s = shots[i]; if (!s || !s.stack[k]) return; pushUndo(); s.stack.splice(k, 1); s.edited = true; selFx = Math.min(selFx, s.stack.length - 1); uiDirty(); }
+function dupEffect(i, k){ const s = shots[i]; if (!s || !s.stack[k]) return; pushUndo(); s.stack.splice(k + 1, 0, JSON.parse(JSON.stringify(s.stack[k]))); s.edited = true; selFx = k + 1; uiDirty(); }
+
+// ---------------------------------------------------------------- director: cuts on the beat grid, one idea per shot, neighbours never alike
+function planRange(t0, t1, hist2, R){
+  const out = [], secs = [];
+  if (AU) AU.sections.forEach(g => { const a = Math.max(g.t0, t0), b = Math.min(g.t1, t1); if (b - a > 0.25) secs.push({t0: a, t1: b, level: g.level}); });
+  if (!secs.length) secs.push({t0, t1, level: 1});
+  secs[0].t0 = t0; secs[secs.length - 1].t1 = t1; for (let i = 1; i < secs.length; i++) secs[i].t0 = secs[i - 1].t1;
+  const shotLen = AU ? clamp(AU.beatLen * 8, 3, 6) : 4;
+  secs.forEach(g => { const len = g.t1 - g.t0, n = Math.max(1, Math.round(len / shotLen));
+    for (let i = 0; i < n; i++) {
+      const a = g.t0 + len * i / n, b = g.t0 + len * (i + 1) / n, w = {}, V = VT || {lum: 0.4, edge: 0.1, sat: 0.2, motion: 0.05}, mul = (k, f) => { if (w[k]) w[k] *= f; };
+      Object.entries(PRESETS).forEach(([k, p]) => { if (p.lv[g.level] > 0) w[k] = p.lv[g.level]; });
+      if (V.lum > 0.55) { mul('halftone', 1.5); mul('plotter', 1.4); mul('hatch', 1.5); mul('sketch', 1.4); mul('neon', 0.8); mul('echo', 0.7); mul('night', 0.5); }
+      if (V.lum < 0.25) { mul('neon', 1.4); mul('echo', 1.3); mul('parallax', 1.2); mul('thermal', 1.2); mul('night', 1.4); mul('glitch', 1.1); }
+      if (V.edge > 0.12) { mul('blueprint', 1.5); mul('neon', 1.3); mul('liquid', 1.2); mul('comic', 1.3); }
+      if (V.sat > 0.3) { mul('mirror', 1.3); mul('kaleido', 1.3); mul('echo', 1.2); mul('liquid', 1.2); mul('y2k', 1.2); }
+      if (V.motion > 0.08) { mul('glitch', 1.3); mul('drop', 1.2); mul('echo', 0.7); mul('tunnel', 1.1); }
+      Object.keys(w).forEach(k => { if (hist2.slice(-4).includes(k)) w[k] *= 0.03; else { const f = PRESETS[k].fam; if (hist2.length && PRESETS[hist2[hist2.length - 1]].fam === f) w[k] *= 0.3; if (hist2.length > 1 && PRESETS[hist2[hist2.length - 2]].fam === f) w[k] *= 0.7; } });
+      const tot = Object.values(w).reduce((x, y) => x + y, 0); let r = R() * tot, key = Object.keys(w)[0];
+      for (const [k2, v] of Object.entries(w)) { r -= v; if (r <= 0) { key = k2; break; } }
+      hist2.push(key); out.push(mkShot(a, b, g.level, key));
+    } });
+  return out;
+}
+function buildPlan(keepEdited){
+  if (!hasVideo) return;
+  pushUndo();
+  const R = rng(seed * 7919 + 13), hist2 = [], res = [];
+  if (!keepEdited || !shots.length) shots = [];
+  if (!shots.length) res.push(...planRange(0, vdur, hist2, R));
+  else {
+    let run = null; const flush = () => { if (run) { res.push(...planRange(run.t0, run.t1, hist2, R)); run = null; } };
+    shots.forEach(s => { if (s.edited) { flush(); res.push(s); hist2.push(s.key); } else if (run) run.t1 = s.t1; else run = {t0: s.t0, t1: s.t1}; }); flush();
+  }
+  shots = res; selShot = clamp(selShot, 0, shots.length - 1); selFx = -1; uiDirty();
+}
+
+// ---------------------------------------------------------------- video loading, playback, frame stepping
+let playing = false, objUrl = null, rate = 1, loopShot = false, tool = 'select';
+function playVideo(){ video.muted = !$('snd').checked; video.playbackRate = rate; const r = video.play(); if (r && r.catch) r.catch(() => { video.muted = true; video.play().catch(() => {}); }); }
+function setPlaying(on){
+  if (!hasVideo) on = false;
+  playing = on;
+  if (on) { const st = getStart(), en = st + getDur(); if (video.currentTime >= en - 0.05 || video.currentTime < st - 0.05) video.currentTime = st; playVideo(); } else video.pause();
+  uiTransport();
+}
+const seekV = tv => { if (hasVideo) video.currentTime = clamp(tv, 0, Math.max(0, vdur - 0.001)); };
+function stepFrames(n){ if (!hasVideo) return; setPlaying(false); const f = Math.round(video.currentTime * srcFps) + n; seekV(f / srcFps + 0.0005); }
+function gotoShot(dir){
+  if (!shots.length) return; const tv = video.currentTime, i = shotIndexAt(tv);
+  let j = dir > 0 ? Math.min(shots.length - 1, i + 1) : (tv - shots[i].t0 > 0.3 ? i : Math.max(0, i - 1));
+  selShot = j; selFx = -1; seekV(shots[j].t0 + 0.001); uiDirty();
+}
+const MS = {snd: null};
 function loadVideo(file){
   if (!file || !file.type.startsWith('video/')) { status('Это не видеофайл.'); return; }
   if (objUrl) URL.revokeObjectURL(objUrl);
-  objUrl = URL.createObjectURL(file); hasVideo = false; $('render').disabled = true;
+  objUrl = URL.createObjectURL(file); hasVideo = false; $('render').disabled = true; playing = false; shots = []; hist.length = 0; redoStack.length = 0; markers = [];
   video.onloadedmetadata = async () => {
     vdur = video.duration;
     if (!isFinite(vdur) || !video.videoWidth) { status('Не удалось прочитать видео. Попробуй MP4 (H.264) или WebM.'); return; }
     $('tStart').max = Math.max(0, vdur - 0.5).toFixed(1); $('tStart').value = 0;
     $('dur').max = Math.min(MAX_DUR, vdur).toFixed(1); $('dur').value = Math.min(MAX_DUR, vdur).toFixed(1);
-    syncLimits(); setOut('tStart', fmtT(0));
-    $('cyc').value = Math.min(6, getDur()).toFixed(1); setOut('cyc', fmtT(+$('cyc').value));
-    $('format').value = 'src'; layoutStage();          // output frame = reference frame (up to 2560 on the long side)
+    syncLimits(); $('cyc').value = Math.min(6, getDur()).toFixed(1); setOut('cyc', fmtT(+$('cyc').value));
+    $('format').value = 'src'; layoutStage();
     const big = Math.max(video.videoWidth, video.videoHeight);
-    $('vinfo').textContent = `${file.name} · ${video.videoWidth}×${video.videoHeight} · ${vdur.toFixed(1)} с` +
-      (vdur > MAX_DUR ? ` · длиннее 5 минут: берётся фрагмент 5 мин, начало настраивается ползунком` : ' · длина клипа = длина оригинала') + (big > MAX_SIDE ? ' · больше 2K, в экспорте уменьшится' : '');
+    $('vinfo').textContent = `${file.name} · ${video.videoWidth}×${video.videoHeight} · ${vdur.toFixed(1)} с` + (vdur > MAX_DUR ? ' · в экспорт войдёт до 5 минут' : '') + (big > MAX_SIDE ? ' · больше 2K, в экспорте уменьшится' : '');
     if (tex) tex.dispose();
     await new Promise(r => { if (video.readyState >= 2) r(); else video.onloadeddata = r; });
     tex = new THREE.VideoTexture(video); tex.minFilter = tex.magFilter = THREE.LinearFilter; tex.generateMipmaps = false;
     U.uTex.value = tex; hasVideo = true; $('empty').hidden = true;
-    buildGrid(); layoutStage(); $('render').disabled = false;
-    video.currentTime = 0;
-    if (playing) playVideo();
-    detectFps();
+    buildGrid(); layoutStage(); video.currentTime = 0; detectFps();
     status('Анализирую звук…');
     const hasAudio = await analyseAudio(file);
     $('audInfo').textContent = hasAudio ? `Звук найден: темп ${AU.bpm.toFixed(0)} BPM, ${AU.kicks.length} ударов, ${AU.sections.length} секций по громкости. Слова не распознаются: голос определяется по ритму слогов.` : 'В файле нет звука, который удалось прочитать. Реакция на ритм отключена.';
     $('audOn').checked = hasAudio; $('audOn').disabled = !hasAudio; $('expAud').disabled = !hasAudio; $('snd').disabled = !hasAudio;
-    document.dispatchEvent(new CustomEvent('vf-ready'));
-    status('Готово к просмотру. Настрой эффекты или оставь авто-режим и жми «Скачать MP4».');
+    status('Смотрю картинку: яркость, контуры, цвета, движение…'); await visualAnalyse();
+    buildPlan(false); hist.length = 0; selShot = 0; $('render').disabled = false; tlFit(); uiDirty();
+    status(`Готово: ${shots.length} шотов. Пробел запускает видео, клавиша «?» показывает все хоткеи.`);
+    setPlaying(true);
   };
   video.onerror = () => status('Браузер не смог открыть это видео. Попробуй MP4 (H.264) или WebM.');
   video.src = objUrl;
+}
+function syncLimits(){
+  const start = getStart(), maxD = Math.min(MAX_DUR, Math.max(0.5, vdur - start));
+  $('dur').max = maxD.toFixed(1); if (getDur() > maxD) $('dur').value = maxD.toFixed(1);
+  setOut('dur', fmtT(getDur())); setOut('tStart', fmtT(getStart())); tlDirty = true;
 }
 function detectFps(){
   if (!video.requestVideoFrameCallback) return;
@@ -851,14 +1145,13 @@ function detectFps(){
     const fit = grids.find(([f]) => ts.every(t => Math.abs(t * f - Math.round(t * f)) < 0.04));
     let best;
     if (fit) best = fit[1];
-    else {
-      const d = ts.slice(1).map((v, i) => v - ts[i]).filter(x => x > 0.004 && x < 0.1).sort((a, b) => a - b);
-      if (d.length < 5) return;
-      const fps = 1 / d[d.length >> 2]; best = [24, 25, 30, 60].reduce((a, b) => Math.abs(b - fps) < Math.abs(a - fps) ? b : a);
-    }
-    $('fps').value = String(best); } };
+    else { const d = ts.slice(1).map((v, i) => v - ts[i]).filter(x => x > 0.004 && x < 0.1).sort((a, b) => a - b); if (d.length < 5) return;
+      const fps = 1 / d[d.length >> 2]; best = [24, 25, 30, 60].reduce((a, b) => Math.abs(b - fps) < Math.abs(a - fps) ? b : a); }
+    srcFps = best; $('fps').value = String(best); } };
   video.requestVideoFrameCallback(cb);
 }
+$('tStart').addEventListener('input', () => { syncLimits(); seekV(getStart()); });
+$('dur').addEventListener('input', () => { syncLimits(); });
 $('snd').onchange = () => { video.muted = !$('snd').checked; };
 $('vidFile').onchange = e => loadVideo(e.target.files[0]);
 let dragDepth = 0;
@@ -866,316 +1159,6 @@ addEventListener('dragenter', e => { e.preventDefault(); dragDepth++; $('drop').
 addEventListener('dragleave', () => { if (--dragDepth <= 0) $('drop').hidden = true; });
 addEventListener('dragover', e => e.preventDefault());
 addEventListener('drop', e => { e.preventDefault(); dragDepth = 0; $('drop').hidden = true; loadVideo(e.dataTransfer.files[0]); });
-
-
-// ---------------------------------------------------------------- auto director: reads picture + sound, cuts the clip into sections, gives each one a look
-let VT = null, planSecs = [], curSec = -1, seed = 1;
-const hsl2rgb = (h, sa, l) => { const a = sa * Math.min(l, 1 - l), f = n => { const k = (n + h / 30) % 12; return l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1)); }; return [f(0), f(8), f(4)]; };
-async function visualAnalyse(){
-  const st = getStart(), D = getDur(), N = 8, Wc = 64, Hc = Math.max(16, Math.round(64 / aspect));
-  const c = document.createElement('canvas'); c.width = Wc; c.height = Hc; const x = c.getContext('2d', {willReadFrequently: true});
-  const grab = () => { x.drawImage(video, 0, 0, Wc, Hc); return x.getImageData(0, 0, Wc, Hc).data; };
-  const was = playing; video.pause();
-  let lum = 0, con = 0, edge = 0, sat = 0, mot = 0; const hue = new Float32Array(36);
-  for (let n = 0; n < N; n++) {
-    const ts = st + (n + 0.5) / N * D;
-    await seekTo(Math.min(ts, vdur - 0.25)); const a = grab();
-    await seekTo(Math.min(ts + 0.15, vdur - 0.05)); const b = grab();
-    const L = new Float32Array(Wc * Hc); let m = 0, m2 = 0, sa = 0, mo = 0;
-    for (let i = 0; i < Wc * Hc; i++) {
-      const r = a[i * 4] / 255, g = a[i * 4 + 1] / 255, bl = a[i * 4 + 2] / 255, mx = Math.max(r, g, bl), mn = Math.min(r, g, bl), l = 0.299 * r + 0.587 * g + 0.114 * bl;
-      L[i] = l; m += l; m2 += l * l; const sv = mx > 0.001 ? (mx - mn) / mx : 0; sa += sv;
-      if (sv > 0.2 && mx > 0.15) { const d = mx - mn; let hh = mx === r ? ((g - bl) / d) % 6 : mx === g ? (bl - r) / d + 2 : (r - g) / d + 4; hh = (hh * 60 + 360) % 360; hue[Math.floor(hh / 10) % 36] += sv * mx; }
-      mo += Math.abs(l - (0.299 * b[i * 4] + 0.587 * b[i * 4 + 1] + 0.114 * b[i * 4 + 2]) / 255);
-    }
-    let e = 0; for (let y = 0; y < Hc - 1; y++) for (let xx = 0; xx < Wc - 1; xx++) { const i = y * Wc + xx; e += Math.abs(L[i + 1] - L[i]) + Math.abs(L[i + Wc] - L[i]); }
-    const nn = Wc * Hc; lum += m / nn; con += Math.sqrt(Math.max(0, m2 / nn - (m / nn) ** 2)); edge += e / nn; sat += sa / nn; mot += mo / nn;
-  }
-  await seekTo(st); if (was) playVideo();
-  const sm = Array.from(hue, (v, i) => v + 0.5 * (hue[(i + 35) % 36] + hue[(i + 1) % 36])); let h1 = 0; sm.forEach((v, i) => { if (v > sm[h1]) h1 = i; });
-  let h2 = -1; sm.forEach((v, i) => { const d = Math.min((i - h1 + 36) % 36, (h1 - i + 36) % 36); if (d >= 6 && v > sm[h1] * 0.35 && (h2 < 0 || v > sm[h2])) h2 = i; });
-  const colored = sm[h1] > 0.4 && sat / N > 0.12, H1 = colored ? h1 * 10 + 5 : 190, H2 = colored ? (h2 >= 0 ? h2 * 10 + 5 : (H1 + 150) % 360) : 330;
-  const c0 = hsl2rgb(H1, 0.85, 0.55), c1 = hsl2rgb(H2, 0.8, 0.6);
-  U.uP0.value.set(...c0); U.uP1.value.set(...c1); PALETTES.auto = [c0.map(v => Math.round(v * 255)), c1.map(v => Math.round(v * 255))];
-  VT = {lum: lum / N, contrast: con / N, edge: edge / N, sat: sat / N, motion: mot / N, h1: H1, h2: H2, colored};
-  return VT;
-}
-// ---- video-processing parameters (VP): one set per frame, from the director's look or from the manual sliders
-const VPD = {zoom: 1, rot: 0, panx: 0, pany: 0, bulge: 0, warp: 0, warpF: 8, warpS: 1, self: 0, slice: 0, pix: 0, par: 0, ca: 0, glow: 0, edge: 0, mirror: 0, duo: 0, post: 0, half: 0, dith: 0, grain: 0, scan: 0, vig: 0, bars: 0,
-  fb: 0, fbz: 1, trans: 0, ttype: 0, exposure: 1, contrast: 1, sat: 1, flash: 0, camx: 0, camy: 0};
-const VMAP = {vZoom: 'zoom', vRot: 'rot', vBulge: 'bulge', vWarp: 'warp', vWarpF: 'warpF', vSelf: 'self', vSlice: 'slice', vPix: 'pix', vPar: 'par', vCa: 'ca', vGlow: 'glow', vEdge: 'edge', vMirror: 'mirror', vDuo: 'duo', vPost: 'post',
-  vHalf: 'half', vDith: 'dith', vGrain: 'grain', vScan: 'scan', vVig: 'vig', vBars: 'bars', vFb: 'fb', vExp: 'exposure', vCon: 'contrast', vSat: 'sat'};
-let VP = {...VPD}, VCOL = [[0.02, 0.03, 0.08], [1, 0.95, 0.85], [0.25, 0.9, 0.95]], curLook = null, shot = {i: 0, n: 0, p: 0, t: 0, tr: 0, tt: 0, name: ''};
-const hx = h => [parseInt(h.slice(1, 3), 16) / 255, parseInt(h.slice(3, 5), 16) / 255, parseInt(h.slice(5, 7), 16) / 255], toHex = c => '#' + c.map(v => Math.round(clamp(v, 0, 1) * 255).toString(16).padStart(2, '0')).join('');
-Object.keys(VMAP).filter(id => id !== 'vMirror').forEach(id => bindRange(id, v => { const st = +$(id).step; return st >= 1 ? String(v) : (st < 0.01 ? v.toFixed(3) : f2(v)); }));
-function vpFromSliders(){
-  const v = {...VPD}; Object.entries(VMAP).forEach(([id, k]) => v[k] = +$(id).value);
-  v.camx = Math.sin(U.uTime.value * 0.6) * 0.9; v.camy = Math.cos(U.uTime.value * 0.45) * 0.55;
-  if (AV.on) { v.zoom += AV.K * 0.04; if (v.ca > 0) v.ca += AV.K * 0.006; if (v.self > 0) v.self += AV.B * 0.02; if (v.glow > 0) v.glow += AV.M * 0.3; if (v.slice > 0) v.slice += AV.K * 0.05; }
-  return v;
-}
-function sliderSyncFromVP(){ Object.entries(VMAP).forEach(([id, k]) => { const el = $(id); if (el.tagName === 'SELECT') { el.value = String(VP[k]); return; } const val = clamp(VP[k], +el.min, +el.max); el.value = val; el.dispatchEvent(new Event('input')); }); ['vC0', 'vC1', 'vC2'].forEach((id, i) => { $(id).value = toHex(VCOL[i]); }); }
-function applyVideoFx(t){
-  const man = !(autoOn && curLook);
-  let v;
-  if (!man) { const a = {b: AV.B, m: AV.M, h: AV.H, k: AV.K, p: shot.p, t: shot.t, ph: AV.beatPh}; v = {...VPD, ...LOOKS[curLook.key].anim(a, curLook.v)}; VCOL = curLook.col; }
-  else { v = vpFromSliders(); VCOL = [hx($('vC0').value), hx($('vC1').value), hx($('vC2').value)]; }
-  if (!man) { v.trans = shot.tr; v.ttype = shot.tt; if (shot.tt === 4) v.flash += 0.45 * shot.tr; }
-  VP = v;
-  VU.uTime.value = t; VU.uVidA.value = ly('video'); U.uCloudA.value = ly('cloud');
-  VU.uA.value.set(v.zoom, v.rot, v.panx, v.pany); VU.uB.value.set(v.bulge, v.warp, v.warpF, v.warpS); VU.uC.value.set(v.self, v.slice, v.pix, v.par); VU.uD.value.set(v.ca, v.glow, v.edge, v.mirror);
-  VU.uE.value.set(v.duo, v.post, v.half, v.dith); VU.uF.value.set(v.grain, v.scan, v.vig, v.bars); VU.uG.value.set(v.fb, v.fbz, v.trans, v.ttype); VU.uH.value.set(v.contrast, v.sat, v.exposure, v.flash);
-  VU.uCam.value.set(v.camx, v.camy); VU.uC0.value.set(...VCOL[0]); VU.uC1.value.set(...VCOL[1]); VU.uC2.value.set(...VCOL[2]);
-}
-const DEFAULTS = {tCount: 0, tLabel: 'num', frameOn: true, nLabels: false, nDens: 100, nThr: 0.22, nMin: 6, nMax: 28, nStroke: 1.3, nShape: 'bracket', lMode: 'delaunay', lDist: 16, lConf: 0.15, lOp: 0.5, lW: 1,
-  pLines: 120, pCon: 1.7, pDef: 55, pSingle: true, pW: 1.1, pAnim: 0.5, pVig: 0, pCol: '#ffffff', gCols: 110, gOp: 0.85, geoColor: 'auto', geoBlend: 'source-over', colorMode: 1, depthY: 0.3, depth: 1, size: 1.1, orbit: 0.3, float: 0.3, scenario: 'float',
-  aGain: 0.75, aBass: 1, aMid: 1, aHigh: 1, aBeat: 1, aScat: 0, aFlash: 0};
-const PAIRS = [['#1c36ff', '#efe9dc'], ['#0f4a2c', '#eef0dc'], ['#e0261d', '#f3ece2'], ['#101010', '#f2f2f2'], ['#6a1fff', '#ffe14a'], ['#0b8fa8', '#f4fbfb']];
-const P01 = i => PALETTES.auto[i].map(v => v / 255), dark = (c, k) => c.map(v => v * k), light = (c, k) => c.map(v => v + (1 - v) * k);
-// Each look is a short film-grammar idea: what the picture does to itself (anim), how the cut arrives (enter), colour (pal), plus rare 2D accents (layers / set).
-// anim gets a = {b: bass, m: mid, h: high, k: kick, p: progress through the shot, t: seconds into the shot}
-const LOOKS = {
-  film:       {name: 'Кино',       hue: 38,  fam: 'g', enter: 4, layers: {video: 1}, fx: {}, vs: pk => ({drift: pk([0.05, 0.08]), dir: pk([-1, 1])}),
-    pal: () => [[0.04, 0.2, 0.24], [1, 0.83, 0.64], [1, 1, 1]], set: () => ({frameOn: true, aFlash: 0.1}),
-    anim: (a, v) => ({zoom: 1 + v.drift * a.p, panx: v.dir * 0.03 * (a.p - 0.5), exposure: 0.96, contrast: 1.12, sat: 0.92, duo: 0.22, glow: 0.12 + 0.25 * a.m, grain: 0.35, vig: 0.5, bars: 0.095, ca: 0.0012})},
-  liquid:     {name: 'Жидкое стекло', hue: 190, fam: 'w', enter: 2, layers: {video: 1}, fx: {}, vs: pk => ({f: pk([6, 9, 12]), s: pk([0.8, 1.3])}),
-    pal: () => [dark(P01(1), 0.2), light(P01(0), 0.55), P01(0)], set: () => ({frameOn: false, aFlash: 0.1}),
-    anim: (a, v) => ({zoom: 1.03 + 0.03 * Math.sin(a.t * 0.5), rot: 0.012 * Math.sin(a.t * 0.4), self: 0.014 + 0.05 * a.b, warp: 0.003 + 0.007 * a.m, warpF: v.f, warpS: v.s, ca: 0.002 + 0.012 * a.k, glow: 0.3 + 0.5 * a.m, sat: 1.25, contrast: 1.1, duo: 0.1, vig: 0.3, grain: 0.1})},
-  neon:       {name: 'Неон-контур', hue: 300, fam: 'e', enter: 4, layers: {video: 1}, fx: {}, vs: () => ({}),
-    pal: () => [[0.01, 0.02, 0.08], light(P01(1), 0.5), light(P01(0), 0.15)], set: () => ({frameOn: false, aFlash: 0.2}),
-    anim: (a) => ({exposure: 0.5, contrast: 1.3, sat: 0.7, duo: 0.35, edge: 0.9 + 1.3 * a.k, glow: 0.7 + 0.7 * a.h, ca: 0.002 + 0.007 * a.k, zoom: 1 + 0.05 * a.p, vig: 0.55, scan: 0.12, grain: 0.12})},
-  halftone:   {name: 'Полутон',    hue: 48,  fam: 'p', enter: 3, layers: {video: 1}, fx: {}, vs: pk => ({cell: pk([8, 10, 14]), pair: pk(PAIRS)}),
-    pal: (v) => [hx(v.pair[0]), hx(v.pair[1]), hx(v.pair[0])], set: () => ({frameOn: false, aFlash: 0}),
-    anim: (a, v) => ({half: v.cell * (1 + 0.3 * a.k), contrast: 1.25, zoom: 1 + 0.04 * Math.sin(a.t * 0.5), grain: 0.15, vig: 0.2})},
-  glitchtape: {name: 'Рваная лента', hue: 330, fam: 'x', enter: 3, layers: {video: 1}, fx: {}, vs: () => ({}),
-    pal: () => [[0.05, 0, 0.12], [0.85, 1, 0.95], light(P01(1), 0.2)], set: () => ({frameOn: true, aFlash: 0.15}),
-    anim: (a) => ({slice: 0.015 + 0.2 * a.k, ca: 0.005 + 0.022 * a.k, scan: 0.4, grain: 0.5, fb: 0.3, fbz: 1.003, sat: 0.85, duo: 0.12, contrast: 1.2, warp: 0.001 + 0.012 * a.k, warpF: 45, warpS: 6, vig: 0.35, flash: 0.12 * a.k})},
-  parallax:   {name: 'Параллакс',  hue: 25,  fam: 'w', enter: 1, layers: {video: 1, cloud: 0.22}, fx: {}, vs: () => ({}),
-    pal: () => [[0.05, 0.03, 0.04], [1, 0.9, 0.78], [1, 1, 1]], set: () => ({frameOn: true, colorMode: 0, depthY: 0.3, orbit: 0.3, size: 0.9, aFlash: 0.1}),
-    anim: (a) => ({par: 0.11 + 0.07 * a.b, camx: Math.sin(a.t * 0.6) * 0.9, camy: Math.cos(a.t * 0.45) * 0.55, zoom: 1.12, contrast: 1.2, sat: 1.15, vig: 0.55, glow: 0.25 + 0.2 * a.m, grain: 0.14, duo: 0.15})},
-  mirror:     {name: 'Зеркало',    hue: 270, fam: 'k', enter: 2, layers: {video: 1}, fx: {}, vs: pk => ({mode: pk([1, 2, 3]), spin: pk([0.06, 0.1])}),
-    pal: () => [dark(P01(1), 0.2), light(P01(0), 0.6), P01(0)], set: () => ({frameOn: false, aFlash: 0.1}),
-    anim: (a, v) => ({mirror: v.mode, rot: v.mode === 3 ? a.t * v.spin : 0.02 * Math.sin(a.t * 0.5), zoom: 1.12 + 0.1 * a.b, post: 6, duo: 0.3, sat: 1.4, contrast: 1.15, ca: 0.003 + 0.01 * a.k, vig: 0.35})},
-  echo:       {name: 'Эхо',        hue: 170, fam: 'g', enter: 4, layers: {video: 1}, fx: {}, vs: () => ({}),
-    pal: () => [dark(P01(1), 0.25), light(P01(0), 0.5), P01(0)], set: () => ({frameOn: false, aFlash: 0.1}),
-    anim: (a) => ({fb: 0.88, fbz: 1.012 + 0.014 * a.b, rot: 0.008 * Math.sin(a.t * 0.7), glow: 0.75, sat: 1.4, ca: 0.004 + 0.008 * a.k, duo: 0.3, contrast: 1.15, vig: 0.45, grain: 0.15})},
-  mosaic:     {name: 'Мозаика',    hue: 100, fam: 'p', enter: 3, layers: {video: 1}, fx: {}, vs: pk => ({c: pk([0.03, 0.04]), pair: pk(PAIRS)}),
-    pal: (v) => [hx(v.pair[0]), hx(v.pair[1]), hx(v.pair[0])], set: () => ({frameOn: false, aFlash: 0}),
-    anim: (a, v) => ({pix: v.c * (1 - 0.85 * a.k) + 0.006, post: 6, duo: 0.4, contrast: 1.2, zoom: 1 + 0.03 * a.p, ca: 0.002, vig: 0.3})},
-  drop:       {name: 'Дроп',       hue: 345, fam: 'x', enter: 2, layers: {video: 1, cloud: 0.4}, fx: {}, vs: () => ({}),
-    pal: () => [[0.03, 0.02, 0.06], [1, 1, 1], light(P01(0), 0.1)], set: () => ({frameOn: true, colorMode: 0, aFlash: 0.45, aScat: 0.2, orbit: 0.5, depthY: 0.3, tCount: 5, tLabel: 'num'}),
-    anim: (a) => ({zoom: 1.03 + 0.1 * a.k + 0.04 * a.p, ca: 0.012 + 0.035 * a.k, slice: a.k > 0.35 ? 0.02 + 0.1 * a.k : 0, flash: 0.3 * a.k, glow: 0.6 + 0.7 * a.k, bulge: 0.05 + 0.12 * a.k, sat: 1.45, contrast: 1.3, fb: 0.25, grain: 0.2, vig: 0.5, duo: 0.12})},
-  blueprint:  {name: 'Схема',      hue: 205, fam: 'e', enter: 4, layers: {video: 1, links: 1, nodes: 1}, fx: {}, vs: () => ({}),
-    pal: () => [[0.01, 0.05, 0.18], [0.55, 0.85, 1], [0.4, 0.9, 1]], set: (pk, rg) => ({nDens: rg(90, 130), nThr: 0.2, nShape: pk(['circle', 'cross', 'diamond']), nLabels: true, lMode: pk(['delaunay', 'hybrid', 'proximity']), lDist: 18, lOp: 0.5, geoColor: 'cyan', tCount: 7, tLabel: 'xyz', aFlash: 0.1}),
-    anim: () => ({exposure: 0.6, contrast: 1.3, sat: 0, duo: 0.85, edge: 0.8, grain: 0.1, vig: 0.4})},
-  plotter:    {name: 'Линии',      hue: 150, fam: 'p', enter: 1, layers: {video: 0.3, plot: 1}, fx: {}, vs: () => ({}),
-    pal: () => [[0.02, 0.03, 0.08], [1, 0.95, 0.85], [1, 1, 1]], set: (pk) => ({pLines: pk([110, 140, 170]), pCon: 1.8, pCol: pk(['#ffffff', '#3fe3f2', '#ff4d3a']), pW: 1.1, pAnim: 0.7, pVig: pk([0, 0.4]), frameOn: false}),
-    anim: () => ({exposure: 0.85, contrast: 1.1})},
-  glyph:      {name: 'Глифы',      hue: 120, fam: 'p', enter: 4, layers: {video: 0.3, glyph: 1}, fx: {}, vs: () => ({}),
-    pal: () => [[0.02, 0.03, 0.08], [1, 0.95, 0.85], [1, 1, 1]], set: (pk) => ({gCols: pk([90, 120, 160]), geoColor: pk(['mono', 'solar', 'cyan']), gOp: 0.9, frameOn: false}),
-    anim: () => ({exposure: 0.85})},
-};
-const WEIGHTS = [
-  {film: 3, liquid: 2.5, parallax: 2.5, echo: 2, neon: 1.2, blueprint: 0.8, mirror: 0.8, glyph: 0.5, plotter: 0.5},
-  {liquid: 2.5, neon: 2.5, parallax: 2, halftone: 2, mosaic: 1.5, echo: 1.5, mirror: 1.5, film: 1.2, glitchtape: 1.2, plotter: 1, glyph: 1, blueprint: 1},
-  {drop: 3.5, glitchtape: 3, mosaic: 2.5, halftone: 2.5, mirror: 2.5, neon: 2, echo: 1.2, liquid: 1.2},
-];
-function makeLook(key, level, R){
-  const T = LOOKS[key], pk = a => a[Math.floor(R() * a.length)], rg = (a, b) => Math.round(a + R() * (b - a)), v = T.vs(pk);
-  return {key, name: T.name, hue: T.hue, level, layers: {...T.layers}, fx: {}, p: T.set(pk, rg), v, col: T.pal(v)};
-}
-function buildPlan(){
-  if (!hasVideo) return;
-  const R = rng(seed * 7919 + 13), D = getDur(), st = getStart(); let secs = [];
-  if (AU) AU.sections.forEach(g => { const a = Math.max(g.t0, st) - st, b = Math.min(g.t1, st + D) - st; if (b - a > 0.3) secs.push({t0: a, t1: b, level: g.level}); });
-  if (!secs.length) secs = [{t0: 0, t1: D, level: 1}];
-  secs[0].t0 = 0; secs[secs.length - 1].t1 = D; for (let i = 1; i < secs.length; i++) secs[i].t0 = secs[i - 1].t1;
-  // shots of about 8 beats, cut on the beat grid so every change lands on the music
-  const shotLen = AU ? clamp(AU.beatLen * 8, 3, 6) : 4, split = [];
-  secs.forEach(g => { const len = g.t1 - g.t0, n = Math.max(1, Math.round(len / shotLen)); for (let i = 0; i < n; i++) split.push({t0: g.t0 + len * i / n, t1: g.t0 + len * (i + 1) / n, level: g.level}); });
-  const hist = [];
-  planSecs = split.map(g => {
-    const w = {...WEIGHTS[g.level]}, V = VT || {lum: 0.4, edge: 0.1, sat: 0.2, motion: 0.05}, mul = (k, f) => { if (w[k]) w[k] *= f; };
-    if (V.lum > 0.55) { mul('halftone', 1.5); mul('plotter', 1.4); mul('neon', 0.8); mul('echo', 0.7); }
-    if (V.lum < 0.25) { mul('neon', 1.4); mul('echo', 1.3); mul('parallax', 1.2); }
-    if (V.edge > 0.12) { mul('blueprint', 1.5); mul('neon', 1.3); mul('liquid', 1.2); }
-    if (V.sat > 0.3) { mul('mirror', 1.3); mul('echo', 1.2); mul('liquid', 1.2); }
-    if (V.motion > 0.08) { mul('glitchtape', 1.3); mul('drop', 1.2); mul('echo', 0.7); }
-    // maximise contrast between neighbours: never the same look within three shots, and avoid the same family back to back
-    Object.keys(w).forEach(k => { if (hist.slice(-3).includes(k)) w[k] *= 0.04; else { if (hist.length && LOOKS[hist[hist.length - 1]].fam === LOOKS[k].fam) w[k] *= 0.35; if (hist.length > 1 && LOOKS[hist[hist.length - 2]].fam === LOOKS[k].fam) w[k] *= 0.75; } });
-    const tot = Object.values(w).reduce((a, b) => a + b, 0); let r = R() * tot, key = Object.keys(w)[0];
-    for (const [k2, v] of Object.entries(w)) { r -= v; if (r <= 0) { key = k2; break; } }
-    hist.push(key); return {...g, look: makeLook(key, g.level, R)};
-  });
-  curSec = -1; tlDirty = true; renderSecList();
-}
-function setv(id, val){ const el = $(id); if (!el) return; if (el.type === 'checkbox') { el.checked = !!val; el.dispatchEvent(new Event('change')); } else { el.value = val; el.dispatchEvent(new Event('input')); el.dispatchEvent(new Event('change')); } }
-function setFx(id, on, val){ fxOn[id] = on; if (val !== undefined) { $(id).value = val; $(id).parentElement.querySelector('output').textContent = f2(+val); } applyFx(id); }
-function applyLook(sec){
-  const L = sec.look; curLook = L;
-  Object.entries(DEFAULTS).forEach(([k, v]) => setv(k, v)); Object.entries(L.p).forEach(([k, v]) => setv(k, v));
-  Object.keys(FX).forEach(id => setFx(id, false));
-}
-function applyAuto(t){
-  if (!autoOn || !planSecs.length) return;
-  let si = planSecs.findIndex(g => t >= g.t0 && t < g.t1); if (si < 0) si = t < planSecs[0].t0 ? 0 : planSecs.length - 1;
-  const sec = planSecs[si]; if (si !== curSec) { applyLook(sec); curSec = si; syncSwitches(); markSec(); }
-  const prev = si > 0 ? planSecs[si - 1] : null, r = prev ? clamp((t - sec.t0) / 0.15, 0, 1) : 1, e = r * r * (3 - 2 * r);
-  Object.keys(LA).forEach(k => { LA[k] = (sec.look.layers[k] || 0) * e + (prev ? (prev.look.layers[k] || 0) * (1 - e) : 0); });
-  const age = t - sec.t0;
-  shot = {i: si, n: planSecs.length, p: clamp(age / Math.max(0.1, sec.t1 - sec.t0), 0, 1), t: age, tr: prev && age < 0.9 ? Math.exp(-age / 0.17) : 0, tt: prev ? LOOKS[sec.look.key].enter : 0, name: sec.look.name};
-}
-function setAuto(on){
-  if (on && !hasVideo) on = false;
-  if (!on && autoOn) { Object.keys(lyOn).forEach(k => lyOn[k] = LA[k] > 0.5); $('cloudOn').checked = LA.cloud > 0.5; $('underlay').value = LA.video; $('underlay').dispatchEvent(new Event('input')); sliderSyncFromVP(); }
-  autoOn = on; $('autoOn').checked = on; document.body.classList.toggle('auto', on); curSec = -1;
-  if (on && !planSecs.length) buildPlan();
-  syncSwitches(); tlDirty = true;
-}
-$('autoOn').addEventListener('change', e => setAuto(e.target.checked));
-$('reroll').onclick = () => { seed++; $('seedO').textContent = '#' + seed; buildPlan(); if (!autoOn) setAuto(true); };
-$('autoFreeze').onclick = () => setAuto(false);
-let rebuildT = 0; ['tStart', 'dur'].forEach(id => $(id).addEventListener('change', () => { clearTimeout(rebuildT); rebuildT = setTimeout(() => { buildPlan(); }, 300); }));
-document.addEventListener('vf-ready', async () => {
-  planSecs = []; curSec = -1; VT = null; setAuto(false);
-  status('Смотрю картинку: яркость, контуры, цвета, движение…'); await visualAnalyse();
-  buildPlan(); setAuto(true);
-  const tr = [`яркость ${(VT.lum * 100).toFixed(0)}%`, `контуры ${(VT.edge * 100).toFixed(0)}`, `цвет ${(VT.sat * 100).toFixed(0)}%`, `движение ${(VT.motion * 100).toFixed(0)}`];
-  $('traits').innerHTML = tr.map(x => `<span class="chip">${x}</span>`).join('') + `<span class="chip sw-h" style="--c:hsl(${VT.h1} 80% 55%)">оттенок 1</span><span class="chip sw-h" style="--c:hsl(${VT.h2} 75% 60%)">оттенок 2</span>`;
-  status('Авто-режим собрал оформление: ' + planSecs.length + ' секц. Можно менять любую или нажать «Свой режим».');
-});
-const LOOK_KEYS = Object.keys(LOOKS);
-function renderSecList(){
-  const box = $('secList'); if (!box) return; box.innerHTML = '';
-  planSecs.forEach((g, i) => {
-    const row = document.createElement('div'); row.className = 'sec'; row.dataset.i = i;
-    const t = v => `${Math.floor(v / 60)}:${(v % 60).toFixed(1).padStart(4, '0')}`;
-    row.innerHTML = `<button class="secgo" title="К началу секции">${t(g.t0)}–${t(g.t1)}</button><i class="lv l${g.level}" title="Громкость: ${['тихо', 'средне', 'громко'][g.level]}"></i><select aria-label="Оформление секции ${i + 1}">${LOOK_KEYS.map(k => `<option value="${k}"${k === g.look.key ? ' selected' : ''}>${LOOKS[k].name}</option>`).join('')}</select>`;
-    row.querySelector('.secgo').onclick = () => { video.currentTime = getStart() + g.t0 + 0.01; };
-    row.querySelector('select').onchange = e => { g.look = makeLook(e.target.value, g.level, rng(seed * 31 + i * 7 + e.target.value.length)); curSec = -1; tlDirty = true; if (!autoOn) setAuto(true); };
-    box.appendChild(row);
-  });
-  markSec();
-}
-function markSec(){ document.querySelectorAll('#secList .sec').forEach((r, i) => r.classList.toggle('now', i === curSec)); }
-
-// ---------------------------------------------------------------- timeline: waveform, beat grid, hits, sections, one lane per module
-const tl = $('tl'), tlx = tl.getContext('2d'), TL_GUT = 74, LANES = [['video', 'ВИДЕО', 55], ['cloud', 'ОБЛАКО', 190], ['nodes', 'УЗЛЫ', 215], ['links', 'СВЯЗИ', 230], ['dither', 'ПЕЧАТЬ', 40], ['curtain', 'ЗАВЕСА', 280], ['plot', 'ПЛОТТЕР', 150], ['glyph', 'ГЛИФЫ', 120], ['glitch', 'ГЛИТЧ', 345]];
-let tlStatic = document.createElement('canvas'), tlW = 0, tlH = 0;
-function sizeTimeline(){
-  const r = tl.getBoundingClientRect(), dpr = Math.min(2, devicePixelRatio || 1); tlW = Math.max(100, Math.round(r.width * dpr)); tlH = Math.max(60, Math.round(r.height * dpr));
-  tl.width = tlStatic.width = tlW; tl.height = tlStatic.height = tlH; tlDirty = true;
-}
-function drawTlStatic(){
-  const c = tlStatic.getContext('2d'), w = tlW, h = tlH, k = h / 230, g = TL_GUT * k, D = getDur(), st = getStart(), X = t => g + t / D * (w - g);
-  c.setTransform(1, 0, 0, 1, 0, 0); c.fillStyle = '#080c10'; c.fillRect(0, 0, w, h); c.font = `${Math.round(8.5 * k)}px ui-monospace, Menlo, monospace`; c.textBaseline = 'middle';
-  // ruler
-  const step = D > 120 ? 30 : D > 40 ? 10 : D > 12 ? 2 : 1; c.fillStyle = '#6e8790'; c.strokeStyle = 'rgba(160,220,235,.14)'; c.lineWidth = 1;
-  for (let t = 0; t <= D + 1e-6; t += step) { const x = X(t); c.beginPath(); c.moveTo(x, 14 * k); c.lineTo(x, h); c.stroke(); c.fillText(`${Math.floor((st + t) / 60)}:${String(Math.floor((st + t) % 60)).padStart(2, '0')}`, x + 3 * k, 7 * k); }
-  // waveform (loudness) + beat grid
-  const wy0 = 16 * k, wh = 46 * k;
-  if (AU) {
-    c.fillStyle = 'rgba(63,227,242,.55)'; const px = Math.max(1, Math.floor((w - g) / 1));
-    for (let x = 0; x < px; x += 2) { const t0 = st + x / px * D, t1 = st + (x + 2) / px * D, i0 = Math.floor(t0 * AH), i1 = Math.max(i0 + 1, Math.floor(t1 * AH)); let m = 0; for (let i = i0; i < i1 && i < AU.F; i++) m = Math.max(m, AU.E[3][i]); const hh = Math.min(1, m) * wh; c.fillRect(g + x, wy0 + (wh - hh) / 2, 1.6, Math.max(1, hh)); }
-    for (let n = Math.ceil((st - AU.off) / AU.beatLen);; n++) { const t = AU.off + n * AU.beatLen - st; if (t > D) break; if (t < 0) continue; const bar = ((n - AU.bar0) % 4 + 4) % 4 === 0; c.strokeStyle = bar ? 'rgba(255,255,255,.38)' : 'rgba(255,255,255,.12)'; c.beginPath(); c.moveTo(X(t), wy0); c.lineTo(X(t), wy0 + wh); c.stroke(); }
-    c.fillStyle = '#6e8790'; c.fillText('ЗВУК', 6 * k, wy0 + wh / 2);
-    // hits + voice
-    const hy = wy0 + wh + 4 * k; c.fillStyle = '#6e8790'; c.fillText('УДАРЫ', 6 * k, hy + 4 * k); c.fillText('ГОЛОС', 6 * k, hy + 14 * k);
-    c.fillStyle = '#ff7a59'; AU.kicks.forEach(t => { t -= st; if (t >= 0 && t <= D) c.fillRect(X(t), hy, 1.5 * k, 8 * k); });
-    c.fillStyle = '#ffe28a'; AU.hats.forEach(t => { t -= st; if (t >= 0 && t <= D) c.fillRect(X(t), hy + 5 * k, 1 * k, 3 * k); });
-    for (let x = 0; x < w - g; x += 2) { const t = st + x / (w - g) * D, v = AU.vp[Math.min(AU.F - 1, Math.floor(t * AH))]; c.fillStyle = `rgba(180,140,255,${0.15 + 0.7 * v})`; c.fillRect(g + x, hy + 10 * k, 2, 8 * k); }
-  } else { c.fillStyle = '#6e8790'; c.fillText('ЗВУКА НЕТ', 6 * k, wy0 + wh / 2); }
-  // sections
-  const sy = 16 * k + 46 * k + 4 * k + 22 * k, sh = 20 * k;
-  c.fillStyle = '#6e8790'; c.fillText('СЕКЦИИ', 6 * k, sy + sh / 2);
-  planSecs.forEach(gg => { const x0 = X(gg.t0), x1 = X(gg.t1); c.fillStyle = `hsla(${gg.look.hue},70%,50%,.55)`; c.fillRect(x0 + 1, sy, x1 - x0 - 2, sh); c.fillStyle = '#fff'; c.fillText(gg.look.name.toUpperCase(), x0 + 5 * k, sy + sh / 2); });
-  // lanes
-  const ly0 = sy + sh + 6 * k, lh = 10 * k;
-  LANES.forEach(([key, name, hue], i) => {
-    const y = ly0 + i * (lh + 1.5 * k); c.fillStyle = '#6e8790'; c.fillText(name, 6 * k, y + lh / 2);
-    c.fillStyle = 'rgba(255,255,255,.04)'; c.fillRect(g, y, w - g, lh);
-    if (autoOn && planSecs.length) planSecs.forEach(gg => { const wv = gg.look.layers[key] || 0; if (wv > 0.02) { c.fillStyle = `hsla(${hue},75%,55%,${0.25 + 0.65 * wv})`; c.fillRect(X(gg.t0) + 1, y, X(gg.t1) - X(gg.t0) - 2, lh); } });
-    else if (ly(key) > 0.5) { c.fillStyle = `hsla(${hue},75%,55%,.7)`; c.fillRect(g, y, w - g, lh); }
-  });
-  tlDirty = false;
-}
-function drawTimeline(t){
-  if (!tlW) sizeTimeline(); if (tlDirty) drawTlStatic();
-  tlx.setTransform(1, 0, 0, 1, 0, 0); tlx.drawImage(tlStatic, 0, 0);
-  const k = tlH / 230, g = TL_GUT * k, x = g + clamp(t / getDur(), 0, 1) * (tlW - g);
-  tlx.strokeStyle = '#ff4d3a'; tlx.lineWidth = Math.max(1, 1.5 * k); tlx.beginPath(); tlx.moveTo(x, 0); tlx.lineTo(x, tlH); tlx.stroke();
-  tlx.fillStyle = '#ff4d3a'; tlx.beginPath(); tlx.moveTo(x - 4 * k, 0); tlx.lineTo(x + 4 * k, 0); tlx.lineTo(x, 7 * k); tlx.fill();
-}
-let tlDrag = false;
-const tlSeek = e => { if (!hasVideo) return; const r = tl.getBoundingClientRect(), gf = (TL_GUT * (tlH / 230)) / tlW, fx = (e.clientX - r.left) / r.width; video.currentTime = getStart() + clamp((fx - gf) / (1 - gf), 0, 0.999) * getDur(); };
-tl.addEventListener('pointerdown', e => { tlDrag = true; tl.setPointerCapture(e.pointerId); tlSeek(e); }); tl.addEventListener('pointermove', e => { if (tlDrag) tlSeek(e); }); tl.addEventListener('pointerup', () => tlDrag = false);
-addEventListener('resize', sizeTimeline);
-
-// ---------------------------------------------------------------- module list (left) + inspector panes (right)
-const MODS = [
-  ['ИСТОЧНИК', [['source', 'Видео', 'p-source', () => hasVideo, null, () => hasVideo ? fmtT(getDur()) : '—'], ['audio', 'Звук и ритм', 'p-audio', () => AV.on, () => $('audOn').click(), () => AU ? AU.bpm.toFixed(0) + ' BPM' : 'нет звука']]],
-  ['РЕЖИССЁР', [['auto', 'Авто-режиссёр', 'p-auto', () => autoOn, () => setAuto(!autoOn), () => autoOn ? `секция ${Math.max(1, curSec + 1)}/${planSecs.length}` : 'ручной']]],
-  ['ОБРАБОТКА ВИДЕО', [['vgeo', 'Геометрия кадра', 'p-vgeo', () => autoOn ? 1 : (VP.zoom !== 1 || VP.rot || VP.bulge || VP.warp || VP.mirror || VP.pix || VP.par ? 1 : 0.15), null, () => VP.mirror ? 'зеркало' : VP.par ? 'параллакс' : VP.pix ? 'мозаика' : VP.warp ? 'волна' : '—'],
-    ['vcont', 'По содержанию', 'p-vcont', () => autoOn ? 1 : (VP.self || VP.slice || VP.ca || VP.edge || VP.glow || VP.fb ? 1 : 0.15), null, () => VP.self ? 'самопреломление' : VP.edge ? 'контуры' : VP.fb ? 'эхо' : VP.ca ? 'RGB-сдвиг' : '—'],
-    ['vcol', 'Цвет и печать', 'p-vcol', () => autoOn ? 1 : (VP.duo || VP.post || VP.half || VP.dith || VP.sat !== 1 || VP.contrast !== 1 ? 1 : 0.15), null, () => VP.half ? 'полутон' : VP.dith ? 'дизеринг' : VP.duo ? 'две краски' : '—'],
-    ['vfilm', 'Плёнка', 'p-vfilm', () => autoOn ? 1 : (VP.grain || VP.scan || VP.vig || VP.bars ? 1 : 0.15), null, () => VP.bars ? 'полосы' : VP.grain ? 'зерно' : '—']]],
-  ['ОБЛАКО ТОЧЕК', [['cloud', 'Облако и глубина', 'p-cloud', () => ly('cloud'), () => toggleLayer('cloud'), () => $('colorMode').selectedOptions[0].textContent], ['scene', 'Сцена', 'p-scene', () => 1, null, () => $('scenario').selectedOptions[0].textContent.split(' (')[0]]]],
-  ['ЭФФЕКТЫ ОБЛАКА', [['fxPulse', 'Пульсация', 'p-fxPulse'], ['fxWave', 'Волны', 'p-fxWave'], ['fxMag', 'Магнит', 'p-fxMag'], ['fxTurb', 'Турбулентность', 'p-fxTurb'], ['fxScan', 'Скан-линия', 'p-fxScan']].map(([id, n, pane]) => [id, n, pane, () => fxOn[id] ? 1 : 0, () => { if (autoOn) setAuto(false); fxOn[id] = !fxOn[id]; applyFx(id); }, () => fxOn[id] ? f2(+$(id).value) : 'выкл'])],
-  ['ГРАФИКА', [['gfx', 'Цвет и наложение', 'p-gfx', () => 1, null, () => $('geoColor').selectedOptions[0].textContent],
-    ['nodes', 'Узлы и фигуры', 'p-nodes', () => ly('nodes'), () => toggleLayer('nodes'), () => $('nShape').selectedOptions[0].textContent],
-    ['links', 'Связи', 'p-links', () => ly('links'), () => toggleLayer('links'), () => $('lMode').selectedOptions[0].textContent.split(' (')[0]],
-    ['dither', 'Дизеринг-печать', 'p-dither', () => ly('dither'), () => toggleLayer('dither'), () => $('dAlgo').selectedOptions[0].textContent.split(' (')[0]],
-    ['curtain', 'Спектральная завеса', 'p-curtain', () => ly('curtain'), () => toggleLayer('curtain'), () => $('cDir').selectedOptions[0].textContent],
-    ['plot', 'Плоттер-линии', 'p-plot', () => ly('plot'), () => toggleLayer('plot'), () => num('pLines') + ' линий'],
-    ['glyph', 'Глифы (ASCII)', 'p-glyph', () => ly('glyph'), () => toggleLayer('glyph'), () => num('gCols') + ' кол.'],
-    ['glitch', 'Глитч', 'p-glitch', () => ly('glitch'), () => toggleLayer('glitch'), () => AV.on ? 'по ударам' : 'по таймеру']]],
-  ['КАМЕРА И МЕТКИ', [['camera', 'Камера', 'p-camera', () => 1, null, () => $('angles').textContent.split(' · ')[0]], ['track', 'Трек-точки', 'p-track', () => +$('tCount').value > 0 ? 1 : 0, null, () => $('tCount').value + ' шт.']]],
-  ['ВЫВОД', [['export', 'Экспорт MP4', 'p-export', () => 1, null, () => $('format').selectedOptions[0].textContent.split(' · ')[0]]]],
-];
-const modEls = {};
-(function buildNav(){
-  const nav = $('mods');
-  MODS.forEach(([g, items]) => {
-    const h = document.createElement('div'); h.className = 'mg'; h.textContent = g; nav.appendChild(h);
-    items.forEach(([id, label, pane, on, tog, sum]) => {
-      const b = document.createElement('div'); b.className = 'mod'; b.dataset.pane = pane; b.tabIndex = 0; b.setAttribute('role', 'button');
-      b.innerHTML = `<i class="led${tog ? ' tg' : ''}" ${tog ? 'title="Включить / выключить"' : ''}></i><span class="mn">${label}</span><em></em>`;
-      b.addEventListener('click', e => { if (e.target.classList.contains('led') && tog) { e.stopPropagation(); tog(); } showPane(pane); });
-      b.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); showPane(pane); } });
-      nav.appendChild(b); modEls[id] = {el: b, led: b.querySelector('.led'), em: b.querySelector('em'), on, sum};
-    });
-  });
-})();
-function showPane(id){
-  document.querySelectorAll('.pane').forEach(p => p.hidden = p.id !== id);
-  document.querySelectorAll('.mod').forEach(m => m.classList.toggle('sel', m.dataset.pane === id));
-  const sel = document.querySelector('.mod.sel'); if (sel && sel.scrollIntoView) sel.scrollIntoView({block: 'nearest', inline: 'nearest'});
-}
-let navTick = 0;
-function refreshNav(){
-  if (++navTick % 6) return;
-  Object.values(modEls).forEach(m => { const v = m.on ? +m.on() : 1; m.led.style.setProperty('--a', v.toFixed(2)); m.led.classList.toggle('lit', v > 0.5); m.el.classList.toggle('off', v < 0.05); const sm = m.sum ? m.sum() : ''; if (m.em.textContent !== sm) m.em.textContent = sm; });
-  document.querySelectorAll('.sw[data-ly]').forEach(b => { const on = ly(b.dataset.ly) > 0.5; if ((b.getAttribute('aria-pressed') === 'true') !== on) { b.setAttribute('aria-pressed', on); b.textContent = on ? 'вкл' : 'выкл'; } });
-  const cur = hasVideo ? clamp(video.currentTime - getStart(), 0, getDur()) : 0, tc = v => `${Math.floor(v / 60)}:${(v % 60).toFixed(1).padStart(4, '0')}`; $('tcode').textContent = `${tc(cur)} / ${tc(getDur())}`;
-}
-showPane('p-auto');
-// ---------------------------------------------------------------- preview loop
-let needCpu = true;
-function frame(){
-  if (!exporting && hasVideo) {
-    const st = getStart(), D = getDur();
-    if (playing && video.currentTime >= st + D - 0.02) video.currentTime = st;
-    const t = clamp(video.currentTime - st, 0, D);
-    if (playing) $('time').value = (t / D).toFixed(3);
-    updateCam(); applyScene(t); applyAuto(t); applyAudio(t);
-    tex.needsUpdate = true;
-    if (tracked.length || needCpu) updateCpu();
-    applyVideoFx(t); renderGL();
-    composeFrame(vctx, view.width, view.height); drawHud(hctx, hud.width, hud.height);
-    drawTimeline(t); refreshNav();
-  }
-  requestAnimationFrame(frame);
-}
 
 // ---------------------------------------------------------------- export: frame-by-frame seek -> WebGL -> WebCodecs H.264 -> MP4
 const status = m => $('status').textContent = m;
@@ -1190,8 +1173,7 @@ function seekTo(t){
   });
 }
 function renderAt(t, fw, fh, comp, cctx){
-  applyScene(t); applyAuto(t); applyAudio(t); tex.needsUpdate = true; updateCpu();
-  applyVideoFx(t); renderGL();
+  tex.needsUpdate = true; updateCpu(); applyFrame(t); renderGL();
   composeFrame(cctx, fw, fh);
   drawHud(hudCtx, fw, fh); cctx.drawImage(hudOff, 0, 0);
 }
@@ -1211,7 +1193,7 @@ async function runExport(){
   const pc = await pickCodec(fw, fh, fps, bitrate);
   if (!pc) { status(`Браузер не поддерживает кодирование ${fw}×${fh}. Выбери формат поменьше (1080p) или другой браузер.`); return; }
   exporting = true; $('render').disabled = true; progress(0); $('dlLink').hidden = true;
-  const wasPlaying = playing, t0 = performance.now(); video.pause(); rotY = tRotY; rotX = tRotX; zoom = tZoom; needCpu = true;
+  const wasPlaying = playing, t0 = performance.now(); video.pause();
   const comp = document.createElement('canvas'); comp.width = fw; comp.height = fh; const cctx = comp.getContext('2d');
   hudOff.width = fw; hudOff.height = fh;
   try {
@@ -1279,7 +1261,220 @@ $('dlLink').onclick = async () => {
   const url = URL.createObjectURL(lastBlob), a = document.createElement('a'); a.href = url; a.download = lastName; document.body.appendChild(a); a.click(); a.remove();
 };
 
-// debug hook for automated tests
-window.__vf = {video, U, get count(){ return count; }, get tracked(){ return tracked; }};
-layoutStage(); sizeTimeline(); navTick = 5; refreshNav(); requestAnimationFrame(frame);
+
+// ---------------------------------------------------------------- interface: effect library, shot inspector, palette, transport, timeline, hotkeys
+let uiFlags = {insp: true, tl: true};
+function uiDirty(){ uiFlags.insp = true; tlDirty = true; }
+const h = (tag, attrs, ...kids) => { const el = document.createElement(tag); if (attrs) for (const [k, v] of Object.entries(attrs)) { if (k === 'class') el.className = v; else if (k.startsWith('on')) el.addEventListener(k.slice(2), v); else if (v !== false && v != null) el.setAttribute(k, v === true ? '' : v); } kids.flat().forEach(c => c != null && el.append(c.nodeType ? c : document.createTextNode(c))); return el; };
+const ICON = {
+  play: '<path d="M8 5v14l11-7z"/>', pause: '<path d="M7 5h4v14H7zM13 5h4v14h-4z"/>', back: '<path d="M6 5h2v14H6zM20 5v14L9 12z"/>', fwd: '<path d="M16 5h2v14h-2zM4 5v14l11-7z"/>', fb: '<path d="M15 6l-8 6 8 6z"/><path d="M6 6h2v12H6z"/>', ff: '<path d="M9 6l8 6-8 6z"/><path d="M16 6h2v12h-2z"/>',
+  razor: '<circle cx="6" cy="7" r="2.6"/><circle cx="6" cy="17" r="2.6"/><path d="M8 8.5L20 18M8 15.5L20 6" fill="none" stroke="currentColor" stroke-width="2"/>', sel: '<path d="M5 3l13 8-6 1.5L9 19z"/>', snap: '<path d="M6 3v8a6 6 0 0 0 12 0V3h-4v8a2 2 0 0 1-4 0V3z"/>',
+  loop: '<path d="M7 7h9l-2-2 1.4-1.4L20 8l-4.6 4.4L14 11l2-2H7a3 3 0 0 0-3 3v1H2v-1a5 5 0 0 1 5-5zm10 10H8l2 2-1.4 1.4L4 16l4.6-4.4L10 13l-2 2h9a3 3 0 0 0 3-3v-1h2v1a5 5 0 0 1-5 5z"/>',
+  undo: '<path d="M12 5V2L6 7l6 5V8a6 6 0 1 1-6 6H4a8 8 0 1 0 8-9z"/>', redo: '<path d="M12 5V2l6 5-6 5V8a6 6 0 1 0 6 6h2a8 8 0 1 1-8-9z"/>', plus: '<path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z"/>', x: '<path d="M6.4 5L12 10.6 17.6 5 19 6.4 13.4 12 19 17.6 17.6 19 12 13.4 6.4 19 5 17.6 10.6 12 5 6.4z"/>',
+  copy: '<path d="M8 3h11v13h-2V5H8zM5 7h11v14H5z"/>', eye: '<path d="M12 5C6 5 2 12 2 12s4 7 10 7 10-7 10-7-4-7-10-7zm0 11a4 4 0 1 1 0-8 4 4 0 0 1 0 8z"/>', flag: '<path d="M6 3h2v18H6zM9 4h10l-3 4 3 4H9z"/>', star: '<path d="M12 2l2.5 7.5H22l-6 4.5 2.3 7.5L12 17l-6.3 4.5L8 14 2 9.5h7.5z"/>', kbd: '<path d="M3 6h18v12H3zm3 3v2h2V9zm4 0v2h2V9zm4 0v2h2V9zm4 0v2h2V9zM6 13v2h12v-2z"/>', film: '<path d="M4 3h16v18H4zm2 2v2h2V5zm0 4v2h2V9zm0 4v2h2v-2zm0 4v2h2v-2zm10-12v2h2V5zm0 4v2h2V9zm0 4v2h2v-2zm0 4v2h2v-2zM10 5v14h4V5z"/>'};
+const icon = (n, s = 18) => { const el = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); el.setAttribute('viewBox', '0 0 24 24'); el.setAttribute('width', s); el.setAttribute('height', s); el.setAttribute('fill', 'currentColor'); el.setAttribute('aria-hidden', 'true'); el.innerHTML = ICON[n]; return el; };
+document.querySelectorAll('[data-ic]').forEach(b => b.prepend(icon(b.dataset.ic, +b.dataset.sz || 18)));
+
+// ---- tabs
+document.querySelectorAll('.tabs').forEach(tb => tb.addEventListener('click', e => { const b = e.target.closest('button[data-tab]'); if (!b) return; tb.querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
+  const scope = tb.dataset.scope; document.querySelectorAll(`[data-pane-of="${scope}"]`).forEach(p => p.hidden = p.dataset.pane !== b.dataset.tab); }));
+const openTab = (scope, tab) => document.querySelector(`.tabs[data-scope="${scope}"] button[data-tab="${tab}"]`).click();
+
+// ---- effect library
+let libMode = 'fx';
+function renderLib(){
+  const box = $('libList'), q = $('libSearch').value.trim().toLowerCase(); box.innerHTML = '';
+  if (libMode === 'fx') Object.entries(CATS).forEach(([cat, [name, hue]]) => {
+    const items = Object.values(EFX).filter(e => e.cat === cat && (!q || (e.name + ' ' + e.desc).toLowerCase().includes(q)));
+    if (!items.length) return;
+    box.append(h('div', {class: 'cat', style: `--h:${hue}`}, h('span', {class: 'catdot'}), name, h('em', null, items.length)));
+    const grid = h('div', {class: 'cards'}); items.forEach(e => grid.append(h('button', {class: 'card', style: `--h:${hue}`, title: e.desc, onclick: ev => addEffect(e.id, $('allClip').checked || ev.altKey)}, h('b', null, e.name), h('small', null, e.desc))));
+    box.append(grid);
+  });
+  else {
+    const grid = h('div', {class: 'cards one'});
+    Object.entries(PRESETS).filter(([k, p]) => !q || p.name.toLowerCase().includes(q)).forEach(([k, p]) => grid.append(h('button', {class: 'card', style: `--h:${CATS[EFX[p.stack[0][0]].cat][1]}`, title: 'Заменить стек выбранного шота', onclick: () => usePreset(selShot, k)},
+      h('b', null, p.name), h('small', null, p.stack.map(([id]) => EFX[id].name).join(' · ')))));
+    box.append(grid);
+  }
+}
+$('libSearch').addEventListener('input', renderLib);
+$('libTabs').addEventListener('click', e => { const b = e.target.closest('button[data-m]'); if (!b) return; libMode = b.dataset.m; $('libTabs').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b)); renderLib(); });
+
+// ---- shot inspector
+function paramRow(it, P, s){
+  if (P.opts) { const sel = h('select', {onchange: e => { it.p[P.k] = isNaN(+e.target.value) || e.target.value === '' ? e.target.value : +e.target.value; s.edited = true; }, onfocus: () => pushUndo()}, P.opts.map(([v, t]) => h('option', {value: v, selected: String(it.p[P.k]) === String(v)}, t)));
+    return h('div', {class: 'prow'}, h('span', null, P.l), sel); }
+  const out = h('output', null, '');
+  const inp = h('input', {type: 'range', min: P.min, max: P.max, step: P.step, value: it.p[P.k], onpointerdown: () => pushUndo(), oninput: e => { it.p[P.k] = +e.target.value; out.textContent = fmtP(+e.target.value, P.step); s.edited = true; $('shotTag').hidden = false; tlDirty = true; }});
+  out.textContent = fmtP(+it.p[P.k], P.step); return h('div', {class: 'prow'}, h('span', null, P.l), inp, out);
+}
+const fmtP = (v, st) => st >= 1 ? String(Math.round(v)) : st < 0.01 ? v.toFixed(3) : v.toFixed(2);
+function renderShotPane(){
+  const box = $('shotPane'); box.innerHTML = ''; const s = shots[selShot];
+  if (!s) { box.append(h('div', {class: 'empty-state'}, h('b', null, 'Здесь появятся настройки шота'), h('p', null, 'Открой видео. Авто-режиссёр разрежет его на шоты по тактам и подберёт эффекты. Любой шот можно выбрать на таймлайне и править.'))); return; }
+  box.append(h('div', {class: 'shothead'}, h('div', null, h('b', null, `Шот ${selShot + 1} из ${shots.length}`), h('span', {class: 'tc'}, `${fmtTC(s.t0)} – ${fmtTC(s.t1)} · ${(s.t1 - s.t0).toFixed(1)} с`)),
+    h('span', {class: 'badge', id: 'shotTag', hidden: !s.edited}, 'правлен')));
+  box.append(h('div', {class: 'frow'}, h('label', null, 'Образ', h('select', {id: 'shotPreset', onchange: e => usePreset(selShot, e.target.value)}, Object.entries(PRESETS).map(([k, p]) => h('option', {value: k, selected: k === s.key}, p.name)))),
+    h('label', null, 'Переход в шот', h('select', {onchange: e => { pushUndo(); s.enter = +e.target.value; s.edited = true; }}, [[0, 'Резкий'], [1, 'Смаз'], [2, 'Зум-удар'], [3, 'Глитч'], [4, 'Вспышка']].map(([v, t]) => h('option', {value: v, selected: +s.enter === v}, t))))));
+  const rr = h('output', null, (s.react ?? 1).toFixed(2));
+  box.append(h('div', {class: 'prow wide'}, h('span', null, 'Реакция на звук'), h('input', {type: 'range', min: 0, max: 2, step: 0.05, value: s.react ?? 1, onpointerdown: () => pushUndo(), oninput: e => { s.react = +e.target.value; rr.textContent = (+e.target.value).toFixed(2); s.edited = true; }}), rr));
+  box.append(h('div', {class: 'btnrow'}, h('button', {class: 'mini', onclick: () => splitAt(video.currentTime), title: 'Ctrl+K или C'}, icon('razor', 15), 'Разрезать'), h('button', {class: 'mini', onclick: () => mergePrev(selShot), title: 'Shift+Delete'}, 'Склеить с предыдущим'), h('button', {class: 'mini', onclick: () => usePreset(selShot, s.key)}, 'Сбросить')));
+  box.append(h('div', {class: 'stackhead'}, 'Стек эффектов', h('small', null, s.stack.length ? 'порядок не важен, все складываются' : 'пусто')));
+  if (!s.stack.length) box.append(h('p', {class: 'sub'}, 'Нажми любой эффект слева, чтобы добавить его в этот шот. Alt+клик или галочка «ко всему клипу» добавит его во все шоты.'));
+  s.stack.forEach((it, k) => { const d = EFX[it.id]; if (!d) return;
+    const head = h('div', {class: 'fxhead', onclick: () => { selFx = k; renderShotPane(); tlDirty = true; }}, h('i', {class: 'fxdot', style: `--h:${CATS[d.cat][1]}`}), h('b', null, d.name),
+      h('span', {class: 'spacer'}), h('button', {class: 'ic' + (it.on === false ? '' : ' on'), title: 'Включить / выключить', onclick: e => { e.stopPropagation(); pushUndo(); it.on = it.on === false ? true : false; s.edited = true; renderShotPane(); }}, icon('eye', 15)),
+      h('button', {class: 'ic', title: 'Дублировать (Ctrl+D)', onclick: e => { e.stopPropagation(); dupEffect(selShot, k); }}, icon('copy', 14)), h('button', {class: 'ic', title: 'Удалить (Delete)', onclick: e => { e.stopPropagation(); removeEffect(selShot, k); }}, icon('x', 14)));
+    box.append(h('div', {class: 'fxitem' + (k === selFx ? ' sel' : '') + (it.on === false ? ' off' : ''), 'data-k': k}, head, d.params.map(P => paramRow(it, P, s)))); });
+}
+function renderPalette(){ setPalette({}); }
+ROLES.forEach(([k]) => $('pal_' + k).addEventListener('input', e => { setPalette({[k]: unhex(e.target.value)}, true); status('Палитра изменена: все эффекты берут цвета из неё.'); }));
+$('btnPalDetect').onclick = async () => { if (!hasVideo) return; status('Определяю палитру…'); const was = playing; await visualAnalyse(); if (was) setPlaying(true); status('Палитра определена заново.'); };
+
+// ---- transport + hotkeys
+function uiTransport(){
+  const b = $('btnPlay'); b.innerHTML = ''; b.append(icon(playing ? 'pause' : 'play', 24)); b.setAttribute('aria-label', playing ? 'Пауза' : 'Играть'); b.classList.toggle('on', playing);
+  $('btnLoop').classList.toggle('on', loopShot); $('btnSnap').classList.toggle('on', snapOn); $('toolSel').classList.toggle('on', tool === 'select'); $('toolRazor').classList.toggle('on', tool === 'razor');
+  $('spd').textContent = rate === 1 ? '1×' : rate + '×'; $('tlWrap').dataset.tool = tool; $('tl').style.cursor = tool === 'razor' ? 'crosshair' : 'default';
+}
+$('btnPlay').onclick = () => setPlaying(!playing);
+$('btnFB').onclick = () => stepFrames(-1); $('btnFF').onclick = () => stepFrames(1); $('btnPrev').onclick = () => gotoShot(-1); $('btnNext').onclick = () => gotoShot(1);
+$('btnLoop').onclick = () => { loopShot = !loopShot; uiTransport(); }; $('btnSnap').onclick = () => { snapOn = !snapOn; uiTransport(); status(snapOn ? 'Привязка к битам включена.' : 'Привязка к битам выключена.'); };
+$('toolSel').onclick = () => { tool = 'select'; uiTransport(); }; $('toolRazor').onclick = () => { tool = 'razor'; uiTransport(); };
+$('btnUndo').onclick = undo; $('btnRedo').onclick = redo;
+$('btnAuto').onclick = () => { if (!hasVideo) return; seed++; buildPlan(true); status('Авто-план перебрал шоты, которые ты не правил. Правленые остались на месте.'); };
+$('btnHelp').onclick = () => $('help').hidden = !$('help').hidden; $('helpClose').onclick = () => $('help').hidden = true;
+const SPEEDS = [0.25, 0.5, 1, 2, 4];
+function speed(d){ const i = clamp(SPEEDS.indexOf(rate) + d, 0, SPEEDS.length - 1); rate = SPEEDS[i]; video.playbackRate = rate; uiTransport(); }
+function addMarker(){ if (!hasVideo) return; pushUndo(); markers.push(+video.currentTime.toFixed(3)); markers.sort((a, b) => a - b); tlDirty = true; status(`Маркер на ${fmtTC(video.currentTime)}.`); }
+addEventListener('keydown', e => {
+  const t = e.target, typing = t && (t.tagName === 'TEXTAREA' || (t.tagName === 'INPUT' && !['range', 'checkbox', 'color'].includes(t.type)) || t.tagName === 'SELECT');
+  if (typing) { if (e.key === 'Escape') t.blur(); return; }
+  const k = e.key, ctrl = e.ctrlKey || e.metaKey, sh = e.shiftKey; let used = true;
+  if (k === ' ') setPlaying(!playing);
+  else if (k === 'k' || k === 'K') { if (ctrl) splitAt(video.currentTime); else setPlaying(false); }
+  else if (k === 'l' || k === 'L') { if (!playing) { rate = 1; setPlaying(true); } else speed(1); }
+  else if (k === 'j' || k === 'J') { if (playing) speed(-1); else stepFrames(-10); }
+  else if (k === 'ArrowLeft') { if (sh) seekV(video.currentTime - 1); else stepFrames(-1); }
+  else if (k === 'ArrowRight') { if (sh) seekV(video.currentTime + 1); else stepFrames(1); }
+  else if (k === 'ArrowUp') gotoShot(-1); else if (k === 'ArrowDown') gotoShot(1);
+  else if (k === 'Home') seekV(getStart()); else if (k === 'End') seekV(getStart() + getDur() - 0.04);
+  else if (k === 'c' || k === 'C') { if (ctrl) used = false; else { tool = tool === 'razor' ? 'select' : 'razor'; uiTransport(); } }
+  else if (k === 'v' || k === 'V') { tool = 'select'; uiTransport(); }
+  else if (k === 's' || k === 'S') { if (ctrl) used = false; else { snapOn = !snapOn; uiTransport(); } }
+  else if (k === 'm' || k === 'M') addMarker();
+  else if (k === 'i' || k === 'I') { const v = clamp(video.currentTime, 0, vdur - 0.5); const end = getStart() + getDur(); $('tStart').value = v.toFixed(1); $('dur').value = clamp(end - v, 0.5, MAX_DUR).toFixed(1); syncLimits(); status(`Начало экспорта: ${fmtTC(v)}.`); }
+  else if (k === 'o' || k === 'O') { const st = getStart(); $('dur').value = clamp(video.currentTime - st, 0.5, MAX_DUR).toFixed(1); syncLimits(); status(`Конец экспорта: ${fmtTC(video.currentTime)}.`); }
+  else if (k === 'x' || k === 'X') { $('tStart').value = 0; $('dur').value = Math.min(MAX_DUR, vdur).toFixed(1); syncLimits(); status('Диапазон экспорта сброшен.'); }
+  else if (k === 'z' || k === 'Z') { if (ctrl) { sh ? redo() : undo(); } else used = false; }
+  else if (k === 'y' || k === 'Y') { if (ctrl) redo(); else used = false; }
+  else if (k === 'd' || k === 'D') { if (ctrl) dupEffect(selShot, selFx); else used = false; }
+  else if (k === 'Delete' || k === 'Backspace') { if (sh) mergePrev(selShot); else if (selFx >= 0) removeEffect(selShot, selFx); else used = false; }
+  else if (k === '[') { const s = shots[selShot]; if (s) { selFx = Math.max(0, selFx - 1); renderShotPane(); tlDirty = true; } }
+  else if (k === ']') { const s = shots[selShot]; if (s) { selFx = Math.min(s.stack.length - 1, selFx + 1); renderShotPane(); tlDirty = true; } }
+  else if (k === '=' || k === '+') tlZoom(1.4); else if (k === '-' || k === '_') tlZoom(1 / 1.4); else if (k === '\\') tlFit();
+  else if (k === '/') { $('libSearch').focus(); }
+  else if (k === '?') $('help').hidden = !$('help').hidden;
+  else if (k === 'Escape') { $('help').hidden = true; tool = 'select'; selFx = -1; uiTransport(); renderShotPane(); }
+  else if (k === 'Enter' && ctrl) { if (!$('render').disabled) runExport(); }
+  else used = false;
+  if (used) { e.preventDefault(); if (t && t.blur && (t.type === 'range' || t.tagName === 'BUTTON')) t.blur(); }
+});
+document.addEventListener('pointerup', e => { const t = e.target; if (t && t.type === 'range' && t.closest('#insp, #shotPane')) { /* keep focus on slider for fine keyboard tweaks */ } });
+
+// ---- timeline
+const tl = $('tl'), tlx = tl.getContext('2d');
+const TLM = {ruler: 22, wave: 58, hits: 16, shots: 34, fxRow: 16, rows: 6, gut: 66};
+let tv0 = 0, tv1 = 10, tlW = 0, tlH = 0, tlDpr = 1, tlStatic = document.createElement('canvas'), tlHover = null;
+const tlFamHue = fam => ({g: 36, w: 275, l: 190, v: 14, p: 150, k: 300, x: 350, o: 215}[fam] ?? 200);
+function sizeTimeline(){ const r = tl.getBoundingClientRect(); tlDpr = Math.min(2, devicePixelRatio || 1); tlW = Math.max(100, Math.round(r.width * tlDpr)); tlH = Math.max(60, Math.round(r.height * tlDpr)); tl.width = tlStatic.width = tlW; tl.height = tlStatic.height = tlH; tlDirty = true; }
+function tlFit(){ tv0 = 0; tv1 = Math.max(1, vdur || 10); tlDirty = true; }
+function tlZoom(f, cx){ const c = cx ?? (video.currentTime || (tv0 + tv1) / 2), span = (tv1 - tv0) / f, a = (c - tv0) / (tv1 - tv0); tv0 = c - span * a; tv1 = tv0 + span; if (span > vdur) tlFit(); else { if (tv0 < 0) { tv1 -= tv0; tv0 = 0; } if (tv1 > vdur) { tv0 -= tv1 - vdur; tv1 = vdur; } tv0 = Math.max(0, tv0); } tlDirty = true; }
+const tX = t => TLM.gut * tlDpr + (t - tv0) / (tv1 - tv0) * (tlW - TLM.gut * tlDpr), tT = x => tv0 + (x - TLM.gut * tlDpr) / (tlW - TLM.gut * tlDpr) * (tv1 - tv0);
+function drawTlStatic(){
+  const c = tlStatic.getContext('2d'), w = tlW, hh = tlH, k = tlDpr, g = TLM.gut * k, span = tv1 - tv0;
+  c.setTransform(1, 0, 0, 1, 0, 0); c.fillStyle = '#0b0d12'; c.fillRect(0, 0, w, hh); c.font = `${Math.round(9.5 * k)}px ui-monospace, Menlo, monospace`; c.textBaseline = 'middle';
+  const y0 = {ruler: 0, wave: TLM.ruler * k}; y0.hits = y0.wave + TLM.wave * k; y0.shots = y0.hits + TLM.hits * k; y0.fx = y0.shots + TLM.shots * k + 3 * k;
+  // lane labels
+  c.fillStyle = '#0f1218'; c.fillRect(0, 0, g, hh); c.fillStyle = '#7d8794';
+  [['ЗВУК', y0.wave + TLM.wave * k / 2], ['УДАРЫ', y0.hits + TLM.hits * k / 2], ['ШОТЫ', y0.shots + TLM.shots * k / 2], ['ЭФФЕКТЫ', y0.fx + 8 * k]].forEach(([n, y]) => c.fillText(n, 8 * k, y));
+  c.save(); c.beginPath(); c.rect(g, 0, w - g, hh); c.clip();
+  // ruler
+  const steps = [0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300]; const st = steps.find(s => span / s < (w - g) / (70 * k)) || 300;
+  c.strokeStyle = 'rgba(255,255,255,.09)'; c.fillStyle = '#7d8794'; c.lineWidth = 1;
+  for (let t = Math.ceil(tv0 / st) * st; t <= tv1; t += st) { const x = Math.round(tX(t)) + 0.5; c.beginPath(); c.moveTo(x, TLM.ruler * k * 0.55); c.lineTo(x, hh); c.stroke(); c.fillText(`${Math.floor(t / 60)}:${(t % 60).toFixed(st < 1 ? 1 : 0).padStart(st < 1 ? 4 : 2, '0')}`, x + 4 * k, TLM.ruler * k * 0.3); }
+  // waveform + beat grid
+  if (AU) {
+    const px = Math.floor(w - g), bin = span * AH / px; c.fillStyle = 'rgba(120,200,255,.55)'; const mid = y0.wave + TLM.wave * k / 2;
+    for (let x = 0; x < px; x += 2) { const i0 = Math.floor((tv0 + x / px * span) * AH), i1 = Math.max(i0 + 1, Math.floor(i0 + bin * 2)); let m = 0; for (let i = i0; i < i1 && i < AU.F; i++) m = Math.max(m, AU.E[3][i]); const hgt = Math.min(1, m) * TLM.wave * k * 0.95; c.fillRect(g + x, mid - hgt / 2, 1.6 * k, Math.max(1, hgt)); }
+    const bpx = (w - g) / span * AU.beatLen; if (bpx > 4) for (let n = Math.ceil((tv0 - AU.off) / AU.beatLen);; n++) { const t = AU.off + n * AU.beatLen; if (t > tv1) break; if (t < tv0) continue; const bar = (((n - AU.bar0) % 4) + 4) % 4 === 0; c.strokeStyle = bar ? 'rgba(255,255,255,.4)' : 'rgba(255,255,255,.13)'; c.beginPath(); c.moveTo(tX(t), y0.wave); c.lineTo(tX(t), y0.shots); c.stroke();
+      if (bar && bpx * 4 > 30 * k) { c.fillStyle = '#9aa6b4'; c.fillText(String(Math.floor((n - AU.bar0) / 4) + 1), tX(t) + 3 * k, y0.wave + 8 * k); } }
+    c.fillStyle = '#ff7a59'; AU.kicks.forEach(t => { if (t >= tv0 && t <= tv1) c.fillRect(tX(t), y0.hits + 1, 1.6 * k, TLM.hits * k * 0.6); });
+    c.fillStyle = '#ffe28a'; AU.hats.forEach(t => { if (t >= tv0 && t <= tv1) c.fillRect(tX(t), y0.hits + TLM.hits * k * 0.62, 1.2 * k, TLM.hits * k * 0.3); });
+    for (let x = 0; x < px; x += 3) { const v = AU.vp[Math.min(AU.F - 1, Math.floor((tv0 + x / px * span) * AH))]; if (v > 0.35) { c.fillStyle = `rgba(190,150,255,${0.15 + 0.5 * v})`; c.fillRect(g + x, y0.hits + TLM.hits * k * 0.9, 3 * k, 2 * k); } }
+  } else { c.fillStyle = '#586270'; c.fillText(hasVideo ? 'в видео нет звука: темп и биты недоступны' : 'открой видео', g + 10 * k, y0.wave + TLM.wave * k / 2); }
+  // shots
+  shots.forEach((s, i) => { if (s.t1 < tv0 || s.t0 > tv1) return; const xa = Math.max(g, tX(s.t0)), xb = Math.min(w, tX(s.t1)), fam = PRESETS[s.key] ? PRESETS[s.key].fam : 'o', hue = tlFamHue(fam), sel = i === selShot;
+    c.fillStyle = `hsla(${hue},65%,${sel ? 55 : 42}%,${sel ? 0.95 : 0.7})`; c.fillRect(xa + 1, y0.shots, Math.max(1, xb - xa - 2), TLM.shots * k);
+    if (sel) { c.strokeStyle = '#fff'; c.lineWidth = 1.5 * k; c.strokeRect(xa + 1.5, y0.shots + 0.5, Math.max(1, xb - xa - 3), TLM.shots * k - 1); }
+    c.fillStyle = '#fff'; c.font = `600 ${Math.round(10.5 * k)}px ui-sans-serif, system-ui, sans-serif`; c.save(); c.beginPath(); c.rect(xa + 1, y0.shots, xb - xa - 2, TLM.shots * k); c.clip(); c.fillText(`${i + 1}  ${PRESETS[s.key] ? PRESETS[s.key].name : 'Свой'}${s.edited ? ' •' : ''}`, xa + 6 * k, y0.shots + TLM.shots * k / 2); c.restore(); c.font = `${Math.round(9.5 * k)}px ui-monospace, Menlo, monospace`;
+    // effect chips
+    s.stack.slice(0, TLM.rows).forEach((it, r) => { const d = EFX[it.id]; if (!d) return; const y = y0.fx + r * (TLM.fxRow + 2) * k, hu = CATS[d.cat][1], selfx = sel && r === selFx;
+      c.fillStyle = `hsla(${hu},60%,${selfx ? 60 : 38}%,${it.on === false ? 0.25 : selfx ? 1 : 0.78})`; c.fillRect(xa + 1, y, Math.max(1, xb - xa - 2), TLM.fxRow * k);
+      if (selfx) { c.strokeStyle = '#fff'; c.lineWidth = 1.2 * k; c.strokeRect(xa + 1.5, y + 0.5, Math.max(1, xb - xa - 3), TLM.fxRow * k - 1); }
+      c.fillStyle = it.on === false ? '#8a919c' : '#fff'; c.save(); c.beginPath(); c.rect(xa + 1, y, xb - xa - 2, TLM.fxRow * k); c.clip(); c.fillText(d.name, xa + 5 * k, y + TLM.fxRow * k / 2 + 0.5); c.restore(); });
+    if (s.stack.length > TLM.rows) { c.fillStyle = '#9aa6b4'; c.fillText(`+${s.stack.length - TLM.rows}`, xa + 5 * k, y0.fx + TLM.rows * (TLM.fxRow + 2) * k + 4 * k); } });
+  // markers
+  markers.forEach((m, i) => { if (m < tv0 || m > tv1) return; const x = tX(m); c.fillStyle = '#ffd84a'; c.beginPath(); c.moveTo(x - 4 * k, 0); c.lineTo(x + 4 * k, 0); c.lineTo(x, 9 * k); c.fill(); c.strokeStyle = 'rgba(255,216,74,.35)'; c.beginPath(); c.moveTo(x, 9 * k); c.lineTo(x, hh); c.stroke(); });
+  // export range
+  const a = getStart(), b = a + getDur(); c.fillStyle = 'rgba(5,6,9,.62)'; if (a > tv0) c.fillRect(g, 0, Math.min(w - g, tX(a) - g), hh); if (b < tv1) c.fillRect(Math.max(g, tX(b)), 0, w, hh);
+  c.fillStyle = 'rgba(255,255,255,.8)'; [[a, 1], [b, -1]].forEach(([t, d]) => { if (t < tv0 || t > tv1) return; const x = tX(t); c.fillRect(x - 0.5 * k, 0, 1.2 * k, hh); c.beginPath(); c.moveTo(x, 0); c.lineTo(x + 7 * k * d, 0); c.lineTo(x, 8 * k); c.fill(); });
+  c.restore(); tlDirty = false;
+}
+function drawTimeline(){
+  if (!tlW) sizeTimeline(); if (tlDirty) drawTlStatic();
+  if (playing && hasVideo) { const t = video.currentTime; if (t < tv0 || t > tv1) { const span = tv1 - tv0; tv0 = clamp(t - span * 0.15, 0, Math.max(0, vdur - span)); tv1 = tv0 + span; tlDirty = true; } }
+  tlx.setTransform(1, 0, 0, 1, 0, 0); tlx.drawImage(tlStatic, 0, 0);
+  if (!hasVideo) return; const k = tlDpr, x = tX(video.currentTime);
+  if (x >= TLM.gut * k && x <= tlW) { tlx.strokeStyle = '#ff4d5e'; tlx.lineWidth = 1.5 * k; tlx.beginPath(); tlx.moveTo(x, 0); tlx.lineTo(x, tlH); tlx.stroke(); tlx.fillStyle = '#ff4d5e'; tlx.beginPath(); tlx.moveTo(x - 5 * k, 0); tlx.lineTo(x + 5 * k, 0); tlx.lineTo(x, 9 * k); tlx.fill(); }
+  if (tool === 'razor' && tlHover != null) { const hx = tX(tlHover); tlx.strokeStyle = 'rgba(255,255,255,.7)'; tlx.setLineDash([4 * k, 3 * k]); tlx.beginPath(); tlx.moveTo(hx, TLM.ruler * k); tlx.lineTo(hx, tlH); tlx.stroke(); tlx.setLineDash([]); }
+}
+// timeline pointer logic
+let tlDrag = null;
+const tlPos = e => { const r = tl.getBoundingClientRect(), px = (e.clientX - r.left) * (tlW / r.width), py = (e.clientY - r.top) * (tlH / r.height); return {px, py, t: tT(px), yy: py / tlDpr}; };
+function nearCut(px){ for (let i = 1; i < shots.length; i++) if (Math.abs(tX(shots[i].t0) - px) < 7 * tlDpr) return i; return -1; }
+tl.addEventListener('pointerdown', e => {
+  if (!hasVideo) return; tl.setPointerCapture(e.pointerId); const {px, py, t, yy} = tlPos(e); if (px < TLM.gut * tlDpr) return;
+  const yShots = TLM.ruler + TLM.wave + TLM.hits, yFx = yShots + TLM.shots + 3;
+  if (yy < yShots) { tlDrag = {mode: 'seek'}; seekV(t); return; }
+  if (tool === 'razor') { splitAt(t); return; }
+  if (yy < yShots + TLM.shots) { const c = nearCut(px); if (c > 0) { pushUndo(); tlDrag = {mode: 'cut', i: c}; return; } selShot = shotIndexAt(t); selFx = -1; seekV(t); uiDirty(); tlDrag = {mode: 'seek'}; return; }
+  const si = shotIndexAt(t), r = Math.floor((yy - yFx) / (TLM.fxRow + 2)); selShot = si; selFx = r >= 0 && r < shots[si].stack.length ? r : -1; seekV(t); uiDirty(); openTab('insp', 'shot');
+});
+tl.addEventListener('pointermove', e => { if (!hasVideo) return; const {px, t, yy} = tlPos(e); tlHover = t;
+  if (tlDrag) { if (tlDrag.mode === 'seek') seekV(t); else if (tlDrag.mode === 'cut') { moveCut(tlDrag.i, snapT(t)); tlDirty = true; } return; }
+  const yShots = TLM.ruler + TLM.wave + TLM.hits; tl.style.cursor = tool === 'razor' ? 'crosshair' : (yy >= yShots && yy < yShots + TLM.shots && nearCut(px) > 0 ? 'ew-resize' : 'default'); });
+tl.addEventListener('pointerup', () => { if (tlDrag && tlDrag.mode === 'cut') uiDirty(); tlDrag = null; }); tl.addEventListener('pointerleave', () => { tlHover = null; });
+tl.addEventListener('wheel', e => { e.preventDefault(); if (e.ctrlKey || e.metaKey || e.altKey) tlZoom(e.deltaY < 0 ? 1.25 : 0.8, tlPos(e).t); else { const span = tv1 - tv0, d = (Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY) / 600 * span; tv0 = clamp(tv0 + d, 0, Math.max(0, vdur - span)); tv1 = tv0 + span; tlDirty = true; } }, {passive: false});
+$('tlIn').onclick = () => tlZoom(1.4); $('tlOut').onclick = () => tlZoom(1 / 1.4); $('tlFit').onclick = tlFit;
+addEventListener('resize', sizeTimeline);
+
+// ---- preview loop
+let uiTick = 0;
+function frame(){
+  if (!exporting && hasVideo) {
+    const st = getStart(), D = getDur(), en = st + D, tn = video.currentTime;
+    if (playing) { const sh = shots[shotIndexAt(tn)]; if (loopShot && sh && tn >= sh.t1 - 0.02) seekV(sh.t0); else if (tn >= en - 0.02) seekV(st); }
+    tex.needsUpdate = true; updateCpu(); applyFrame(video.currentTime - st); renderGL(); composeFrame(vctx, view.width, view.height); drawHud(hctx, hud.width, hud.height);
+    if (uiFlags.insp) { uiFlags.insp = false; renderShotPane(); }
+    drawTimeline();
+    if (++uiTick % 3 === 0) { $('tcode').textContent = `${fmtTC(video.currentTime)} / ${fmtTC(vdur)}`; $('shotNow').textContent = shotInfo.n ? `Шот ${shotInfo.i + 1}/${shotInfo.n} · ${shotInfo.name}` : ''; }
+  } else if (!hasVideo) { if (tlDirty) drawTimeline(); }
+  requestAnimationFrame(frame);
+}
+renderLib(); renderPalette(); renderShotPane(); uiTransport(); openTab('insp', 'shot');
+window.__vf = {video, U, VU, LA, get edgeMax(){ return edgeMax; }, pickNodes: () => { analyseEdges(); return pickNodes().length; }, get G(){ return Object.fromEntries(['nDens','nThr','nMin','nMax','nStroke','nShape','geoColor','lMode'].map(k => [k, $(k).value])); }, get shots(){ return shots; }, get PAL(){ return PAL; }, get count(){ return count; }, get tracked(){ return tracked; }, EFX, PRESETS, setPlaying, stepFrames, splitAt, usePreset, addEffect, undo, redo, get tool(){ return tool; }};
+layoutStage(); sizeTimeline(); requestAnimationFrame(frame);
+
 })();
