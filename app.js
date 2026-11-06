@@ -2,7 +2,7 @@
 'use strict';
 const $ = id => document.getElementById(id);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
-const MAX_DUR = 20, MAX_SIDE = 2560, TAU = Math.PI * 2, DEG = Math.PI / 180;
+const MAX_DUR = 300, MAX_SIDE = 2560, TAU = Math.PI * 2, DEG = Math.PI / 180;
 const stage = $('stage'), glc = $('gl'), hud = $('hud'), hctx = hud.getContext('2d');
 
 // ---------------------------------------------------------------- video + three.js
@@ -264,9 +264,9 @@ function updateCam(){
 
 // ---------------------------------------------------------------- scene timeline (driven by the video clock)
 const ease = v => { v = clamp(v, 0, 1); return v < 0.5 ? 4 * v * v * v : 1 - Math.pow(-2 * v + 2, 3) / 2; };
-function scatterAt(t, D){
-  const u = t / D, m = +$('scatter').value;
-  switch ($('scenario').value) {
+function scatterBase(kind, t, C){
+  const u = t / C, m = +$('scatter').value;
+  switch (kind) {
     case 'in': return m * (1 - ease((u - 0.05) / 0.7));
     case 'out': return m * ease((u - 0.2) / 0.7);
     case 'outin': return m * (u < 0.5 ? ease((u - 0.08) / 0.36) : 1 - ease((u - 0.56) / 0.36));
@@ -274,11 +274,23 @@ function scatterAt(t, D){
   }
   return 0;
 }
-const getDur = () => +$('dur').value, getStart = () => +$('tStart').value;
+// Short clip: the scenario spans the whole clip. Long clip: it plays in windows of one effect cycle
+// (assemble at the start, scatter at the end, scatter-and-return in the middle), the rest stays assembled.
+function scatterAt(t, D){
+  const C = getCycle(), kind = $('scenario').value;
+  if (C >= D - 1e-6) return scatterBase(kind, t, D);
+  const endStart = D - C, midStart = (D - C) / 2;
+  if (kind === 'in') return t < C ? scatterBase('in', t, C) : 0;
+  if (kind === 'out') return t > endStart ? scatterBase('out', t - endStart, C) : 0;
+  if (kind === 'inout') return t < C ? scatterBase('in', t, C) : t > endStart ? scatterBase('out', t - endStart, C) : 0;
+  if (kind === 'outin') return t >= midStart && t <= midStart + C ? scatterBase('outin', t - midStart, C) : 0;
+  return 0;
+}
+const getDur = () => +$('dur').value, getStart = () => +$('tStart').value, getCycle = () => Math.max(0.5, Math.min(+$('cyc').value, getDur()));
 function applyScene(t){
-  const D = getDur(), stat = $('scenario').value === 'static', o = stat ? 0 : +$('orbit').value, ph = TAU * t / D;
-  U.uTime.value = t; U.uLoop.value = TAU / D;
-  const mv = +$('magN').value, a = mv >= 5 ? TAU * t / D * (mv - 4) : Math.PI * mv / 10 * (1 - Math.cos(TAU * t / D));
+  const D = getDur(), C = getCycle(), stat = $('scenario').value === 'static', o = stat ? 0 : +$('orbit').value, ph = TAU * t / C;
+  U.uTime.value = t; U.uLoop.value = TAU / C;
+  const mv = +$('magN').value, a = mv >= 5 ? TAU * t / C * (mv - 4) : Math.PI * mv / 10 * (1 - Math.cos(TAU * t / C));
   const hw = U.uWidth.value, hh = U.uHalfH.value, path = $('magPath').value, MP = U.uMagPos.value;
   if (path === 'circle') MP.set(Math.cos(a) * hw * 0.55, Math.sin(a) * hh * 0.55, 30);
   else if (path === 'eight') MP.set(Math.sin(a) * hw * 0.6, Math.sin(a * 2) * hh * 0.4, 30);
@@ -378,7 +390,7 @@ function drawHud(ctx, w, h){
 // ---------------------------------------------------------------- video loading + playback
 let playing = true, objUrl = null;
 const fmtT = v => v.toFixed(1) + ' с';
-bindRange('dur', fmtT); bindRange('tStart', fmtT);
+bindRange('dur', fmtT); bindRange('tStart', fmtT); bindRange('cyc', fmtT);
 function syncLimits(){
   const start = getStart(), maxD = Math.min(MAX_DUR, Math.max(0.5, vdur - start));
   $('dur').max = maxD.toFixed(1); if (getDur() > maxD) $('dur').value = maxD.toFixed(1);
@@ -400,9 +412,11 @@ function loadVideo(file){
     $('tStart').max = Math.max(0, vdur - 0.5).toFixed(1); $('tStart').value = 0;
     $('dur').max = Math.min(MAX_DUR, vdur).toFixed(1); $('dur').value = Math.min(MAX_DUR, vdur).toFixed(1);
     syncLimits(); $('tStartO').textContent = fmtT(0);
+    $('cyc').value = Math.min(6, getDur()).toFixed(1); $('cycO').textContent = fmtT(+$('cyc').value);
+    $('format').value = 'src'; layoutStage();          // output frame = reference frame (up to 2560 on the long side)
     const big = Math.max(video.videoWidth, video.videoHeight);
     $('vinfo').textContent = `${file.name} · ${video.videoWidth}×${video.videoHeight} · ${vdur.toFixed(1)} с` +
-      (vdur > MAX_DUR ? ` · берётся фрагмент до ${MAX_DUR} с, начало настраивается ползунком` : '') + (big > MAX_SIDE ? ' · больше 2K, в экспорте уменьшится' : '');
+      (vdur > MAX_DUR ? ` · длиннее 5 минут: берётся фрагмент 5 мин, начало настраивается ползунком` : ' · длина клипа = длина оригинала') + (big > MAX_SIDE ? ' · больше 2K, в экспорте уменьшится' : '');
     if (tex) tex.dispose();
     await new Promise(r => { if (video.readyState >= 2) r(); else video.onloadeddata = r; });
     tex = new THREE.VideoTexture(video); tex.minFilter = tex.magFilter = THREE.LinearFilter; tex.generateMipmaps = false;
@@ -410,10 +424,28 @@ function loadVideo(file){
     buildGrid(); layoutStage(); $('render').disabled = false;
     video.currentTime = 0;
     if (playing) video.play().catch(() => {});
+    detectFps();
     status('Готово к просмотру. Настрой эффекты и жми «Скачать MP4».');
   };
   video.onerror = () => status('Браузер не смог открыть это видео. Попробуй MP4 (H.264) или WebM.');
   video.src = objUrl;
+}
+function detectFps(){
+  if (!video.requestVideoFrameCallback) return;
+  const ts = []; let n = 0;
+  const cb = (now, md) => { ts.push(md.mediaTime); if (++n < 14) video.requestVideoFrameCallback(cb); else {
+    // frame times of a constant-fps clip sit on a k/fps grid even when a slow machine skips frames: take the lowest fps whose grid fits all of them
+    const grids = [[24000 / 1001, 24], [24, 24], [25, 25], [30000 / 1001, 30], [30, 30], [60000 / 1001, 60], [60, 60]];
+    const fit = grids.find(([f]) => ts.every(t => Math.abs(t * f - Math.round(t * f)) < 0.04));
+    let best;
+    if (fit) best = fit[1];
+    else {
+      const d = ts.slice(1).map((v, i) => v - ts[i]).filter(x => x > 0.004 && x < 0.1).sort((a, b) => a - b);
+      if (d.length < 5) return;
+      const fps = 1 / d[d.length >> 2]; best = [24, 25, 30, 60].reduce((a, b) => Math.abs(b - fps) < Math.abs(a - fps) ? b : a);
+    }
+    $('fps').value = String(best); } };
+  video.requestVideoFrameCallback(cb);
 }
 $('vidFile').onchange = e => loadVideo(e.target.files[0]);
 let dragDepth = 0;
@@ -468,11 +500,11 @@ async function runExport(){
   if (exporting || !hasVideo) return;
   if (!window.VideoEncoder) { status('Этот браузер не умеет кодировать видео. Открой страницу в Chrome, Edge или Safari 16.4+ на компьютере.'); return; }
   const [fw, fh] = fmtSize(), fps = +$('fps').value, D = getDur(), st = getStart(), frames = Math.round(D * fps);
-  const bitrate = Math.round(clamp(fw * fh * fps * +$('quality').value, 6e6, 80e6));
+  const bitrate = Math.round(clamp(Math.min(fw * fh * fps * +$('quality').value, 80e6, 300 * 8e6 / D), 3e6, 80e6));   // file stays under ~300 MB: it is built in memory
   const pc = await pickCodec(fw, fh, fps, bitrate);
   if (!pc) { status(`Браузер не поддерживает кодирование ${fw}×${fh}. Выбери формат поменьше (1080p) или другой браузер.`); return; }
   exporting = true; $('render').disabled = true; progress(0); $('dlLink').hidden = true;
-  const wasPlaying = playing; video.pause(); rotY = tRotY; rotX = tRotX; zoom = tZoom; needCpu = true;
+  const wasPlaying = playing, t0 = performance.now(); video.pause(); rotY = tRotY; rotX = tRotX; zoom = tZoom; needCpu = true;
   const comp = document.createElement('canvas'); comp.width = fw; comp.height = fh; const cctx = comp.getContext('2d');
   hudOff.width = fw; hudOff.height = fh;
   try {
@@ -489,7 +521,8 @@ async function runExport(){
       const vf = new VideoFrame(comp, {timestamp: Math.round(i * 1e6 / fps), duration: Math.round(1e6 / fps)});
       enc.encode(vf, {keyFrame: i % (fps * 2) === 0}); vf.close();
       while (enc.encodeQueueSize > 6) await new Promise(r => setTimeout(r, 4));
-      if (i % 2 === 0) { progress(i / frames); status(`Рендер: кадр ${i + 1} из ${frames} (${fw}×${fh})`); await tick(); }
+      if (i % 2 === 0) { progress(i / frames); const el = (performance.now() - t0) / 1000, eta = i > 20 ? Math.round(el / i * (frames - i)) : null;
+        status(`Рендер: кадр ${i + 1} из ${frames} (${fw}×${fh})` + (eta !== null ? ` · осталось ~${eta >= 90 ? Math.round(eta / 60) + ' мин' : eta + ' с'}. Не закрывай и не сворачивай вкладку.` : '')); await tick(); }
     }
     await enc.flush(); enc.close(); muxer.finalize();
     if (err) throw err;
